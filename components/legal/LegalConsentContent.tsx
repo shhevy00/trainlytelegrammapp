@@ -3,13 +3,18 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type FormEvent, type ReactElement } from "react";
+import type { TrainlyDataSource } from "@/lib/config/dataSource";
 import { PageHeader } from "@/components/prod-shell/PageHeader";
 import { ShellMain } from "@/components/prod-shell/ShellMain";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
 
 const linkCls = "font-medium text-[var(--brand-solid)] underline decoration-[color:color-mix(in_srgb,var(--brand-solid),transparent_40%)] underline-offset-2";
 
-export function LegalConsentContent(): ReactElement {
+export interface LegalConsentContentProps {
+  trainlyDataMode: TrainlyDataSource;
+}
+
+export function LegalConsentContent({ trainlyDataMode }: LegalConsentContentProps): ReactElement {
   const router = useRouter();
   const { mockLifecycle, acceptLegalMock } = useMockApp();
   const [a1, setA1] = useState(false);
@@ -39,7 +44,9 @@ export function LegalConsentContent(): ReactElement {
 
       {mockLifecycle.mockLegalStatus === "accepted" ? (
         <p className="rounded-xl border border-[color:var(--border-soft)] bg-[var(--tg-card)] px-3 py-2 text-xs leading-relaxed text-[var(--text-secondary)]">
-          Условия уже приняты в демо. Вы можете продолжить путь или вернуться в профиль.
+          {trainlyDataMode === "mock"
+            ? "Условия уже приняты в демо. Вы можете продолжить путь или вернуться в профиль."
+            : "Условия уже приняты. Можете продолжить настройку или вернуться в профиль."}
         </p>
       ) : null}
 

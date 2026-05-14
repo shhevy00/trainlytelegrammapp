@@ -12,7 +12,7 @@ import { MockAppProvider } from "@/lib/mock/MockAppProvider";
 
 /**
  * Оболочка данных: мок в памяти или снимок PostgreSQL после JWT-сессии.
- * В production на защищённых путях без сессии mock не используется (дубль к middleware + redirect).
+ * В production на защищённых путях без сессии mock не используется (дубль к edge proxy + redirect).
  * На публичных путях без сессии остаётся MockAppProvider (welcome/auth используют useMockApp).
  */
 export async function TrainlyAppShell({ children }: { children: ReactNode }): Promise<ReactElement> {

@@ -58,3 +58,12 @@ export function getTrainlyDataSource(): TrainlyDataSource {
 export function isTrainlyMockDataSource(): boolean {
   return getTrainlyDataSource() === "mock";
 }
+
+/** Для UI без выброса: при ошибке конфигурации считаем «не mock в памяти». */
+export function resolveTrainlyDataModeForUi(): TrainlyDataSource {
+  try {
+    return getTrainlyDataSource();
+  } catch {
+    return "postgres";
+  }
+}

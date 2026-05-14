@@ -15,7 +15,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function waitForTelegramInitData(maxMs: number, stepMs: number): Promise<string | null> {
-  const steps = Math.ceil(maxMs / stepMs);
+  const steps = Math.max(1, Math.ceil(maxMs / stepMs));
   for (let i = 0; i < steps; i++) {
     const raw = window.Telegram?.WebApp?.initData;
     if (typeof raw === "string" && raw.length > 0) return raw;
@@ -44,7 +44,7 @@ export function TelegramAutoLogin({
     let cancelled = false;
 
     void (async (): Promise<void> => {
-      const initData = await waitForTelegramInitData(4_000, 50);
+      const initData = await waitForTelegramInitData(12_000, 50);
       if (cancelled || myGen !== effectGen.current || initData == null) return;
 
       setBanner("signing_in");
@@ -55,7 +55,13 @@ export function TelegramAutoLogin({
 
       if (!result.ok) {
         setBanner("error");
-        setErrorDetail(result.error);
+        const detail =
+          result.error === "timeout"
+            ? "таймаут сети"
+            : result.error === "network"
+              ? "сеть"
+              : result.error;
+        setErrorDetail(detail);
         return;
       }
 

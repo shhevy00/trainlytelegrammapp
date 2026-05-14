@@ -3,7 +3,7 @@
  * Персистентность только в localStorage для удобства разработки.
  */
 
-export type MockAuthStatus = "anonymous" | "authenticated_demo";
+export type MockAuthStatus = "anonymous" | "authenticated_demo" | "authenticated";
 
 export type MockLegalStatus = "not_accepted" | "accepted";
 
@@ -69,7 +69,7 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 function parseAuth(v: unknown): MockAuthStatus | null {
-  if (v === "anonymous" || v === "authenticated_demo") return v;
+  if (v === "anonymous" || v === "authenticated_demo" || v === "authenticated") return v;
   return null;
 }
 

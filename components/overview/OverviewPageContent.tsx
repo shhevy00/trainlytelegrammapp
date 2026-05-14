@@ -20,6 +20,7 @@ import {
 import type { MockScheduleItem } from "@/lib/mock/data";
 import { MOCK_OVERVIEW_LATER_TODAY_LIMIT, mockTrainer } from "@/lib/mock/data";
 import { formatJournalDayLabel, formatJournalTime } from "@/lib/mock/journalSeed";
+import type { TrainlyDataSource } from "@/lib/config/dataSource";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
 
 const labelToday =
@@ -114,7 +115,11 @@ function slotRowSecondLine(slot: MockScheduleItem): string {
   return `${t} · ${slot.durationMinutes} мин`;
 }
 
-export function OverviewPageContent(): ReactElement {
+export interface OverviewPageContentProps {
+  trainlyDataMode: TrainlyDataSource;
+}
+
+export function OverviewPageContent({ trainlyDataMode }: OverviewPageContentProps): ReactElement {
   const router = useRouter();
   const {
     todayIso,
@@ -207,7 +212,11 @@ export function OverviewPageContent(): ReactElement {
         className="shrink-0 rounded-2xl border border-[color:color-mix(in_srgb,var(--warning),transparent_45%)] bg-[color:color-mix(in_srgb,var(--warning),transparent_88%)] p-3 text-sm text-[var(--text-primary)]"
         role="status"
       >
-        <p className="font-medium leading-snug">Демо: доступ истёк. Так будет выглядеть paywall-сценарий.</p>
+        <p className="font-medium leading-snug">
+          {trainlyDataMode === "mock"
+            ? "Демо: доступ истёк. Так будет выглядеть экран продления подписки."
+            : "Доступ к Trainly истёк. Оформите тариф, чтобы продолжить работу в дневнике."}
+        </p>
         <Link
           href="/billing/plans"
           prefetch={false}
@@ -341,7 +350,7 @@ export function OverviewPageContent(): ReactElement {
   );
 
   return (
-    <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 px-4 py-3 pb-3 sm:gap-4 sm:py-4">
+    <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col gap-3 px-4 py-3 pb-[calc(6rem+max(0.35rem,env(safe-area-inset-bottom,0px)))] sm:gap-4 sm:py-4">
       <header className="flex shrink-0 min-w-0 items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="text-sm text-[var(--tg-muted)]">Добрый день,</p>
@@ -391,13 +400,13 @@ export function OverviewPageContent(): ReactElement {
                 <button
                   type="button"
                   className={btnAiCompact}
-                  title="AI-подготовка"
-                  aria-label="AI-подготовка"
+                  title="Подсказка перед тренировкой (демо, без реального ИИ)"
+                  aria-label="Подсказка перед тренировкой, демо"
                   onClick={() => setAiSheetOpen(true)}
                 >
                   <IconSparkle />
                   <span className="font-display text-[10px] font-bold leading-none tracking-wide text-[var(--text-secondary)]">
-                    AI
+                    Идеи
                   </span>
                 </button>
               </div>

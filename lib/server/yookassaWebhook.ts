@@ -59,6 +59,8 @@ function isPaidPlanSlug(v: string): v is PaidPlanSlug {
 /**
  * Обрабатывает тело уведомления ЮKassa: запись в `billing_webhook_events` по уникальному ключу,
  * затем идемпотентное обновление доступа тренера и заказа Trainly (если переданы метаданные).
+ * Повтор с тем же ключом: если прошлый прогон завершился без handlerStatus 200, обработка выполняется снова
+ * (восстановление после сбоя между insert и mark).
  */
 export async function processYookassaWebhook(
   db: AppDatabase,
@@ -88,11 +90,29 @@ export async function processYookassaWebhook(
     .onConflictDoNothing({ target: billingWebhookEvents.idempotencyKey })
     .returning({ id: billingWebhookEvents.id });
 
-  if (inserted.length === 0) {
-    return { httpStatus: 200, message: "duplicate" };
-  }
+  let webhookRowId: string;
 
-  const webhookRowId = inserted[0]!.id;
+  if (inserted.length > 0) {
+    webhookRowId = inserted[0]!.id;
+  } else {
+    const existing = await db
+      .select({
+        id: billingWebhookEvents.id,
+        processedAt: billingWebhookEvents.processedAt,
+        handlerStatus: billingWebhookEvents.handlerStatus,
+      })
+      .from(billingWebhookEvents)
+      .where(eq(billingWebhookEvents.idempotencyKey, idempotencyKey))
+      .limit(1);
+    const row = existing[0];
+    if (row == null) {
+      return { httpStatus: 500, message: "idempotency_row_missing" };
+    }
+    if (row.processedAt != null && row.handlerStatus === 200) {
+      return { httpStatus: 200, message: "duplicate" };
+    }
+    webhookRowId = row.id;
+  }
 
   const mark = async (handlerStatus: number, errorMessage: string | null): Promise<void> => {
     await db

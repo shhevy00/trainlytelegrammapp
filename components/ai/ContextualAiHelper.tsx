@@ -79,6 +79,9 @@ export function ContextualAiHelper({
     return (
       <div className="flex max-h-[min(78dvh,32rem)] flex-col rounded-t-2xl border border-[color:var(--border-soft)] border-b-0 bg-[var(--bg-card)] p-4 shadow-[0_-8px_40px_rgba(0,0,0,0.45)] sm:rounded-2xl sm:border-b">
         <p className="text-base font-semibold leading-snug text-[var(--text-primary)]">{heading}</p>
+        <p className="text-[11px] leading-snug text-[var(--tg-muted)]">
+          Демо: шаблонные фразы, без реального ИИ.
+        </p>
         {facts.length > 0 ? (
           <ul className="app-scroll mt-3 max-h-[min(42dvh,16rem)] space-y-2 overflow-y-auto pr-1 text-sm leading-snug text-[var(--text-secondary)]">
             {facts.map((f, i) => (
@@ -187,6 +190,9 @@ export function ContextualAiHelper({
     <Card className="border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--bg-card-elevated),transparent_12%)]">
       <div className="flex flex-col gap-2">
         <p className="app-section-label text-[11px]">{heading}</p>
+        <p className="text-[11px] leading-snug text-[var(--tg-muted)]">
+          Демо: текст генерируется локально по шаблону, без реальной нейросети и не является рекомендацией по здоровью.
+        </p>
 
         {exhausted ? exhaustedBlock : null}
 

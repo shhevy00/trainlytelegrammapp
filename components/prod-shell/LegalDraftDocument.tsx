@@ -22,7 +22,7 @@ export function LegalDraftDocument({
       <LegalWarningCard />
       <div className="premium-surface min-w-0 p-4 text-sm leading-relaxed text-[var(--text-secondary)]">
         <p className="text-xs font-medium uppercase tracking-wide text-[var(--tg-muted)]">Версия</p>
-        <p className="mt-1 font-medium text-[var(--text-primary)]">v0.1 draft</p>
+        <p className="mt-1 font-medium text-[var(--text-primary)]">Черновик v0.1</p>
         <p className="mt-3 text-xs font-medium uppercase tracking-wide text-[var(--tg-muted)]">
           Дата вступления
         </p>

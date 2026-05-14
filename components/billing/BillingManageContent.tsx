@@ -116,7 +116,7 @@ export function BillingManageContent({
           </div>
         ) : null}
         <div className="flex flex-wrap justify-between gap-2">
-          <span className="text-[var(--tg-muted)]">AI-подготовки</span>
+          <span className="text-[var(--tg-muted)]">Подсказки (счётчик)</span>
           <span className="font-medium tabular-nums text-[var(--text-primary)]">
             осталось {remaining} из {aiCreditsTotal}
             {isPostgres ? "" : " (демо)"}

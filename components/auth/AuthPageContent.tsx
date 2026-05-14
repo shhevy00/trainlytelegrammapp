@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState, type ReactElement } from "react";
+import { useCallback, useState, type ReactElement } from "react";
 import { enterDevTrainerSessionAction } from "@/app/actions/trainly";
 import { ShellMain } from "@/components/prod-shell/ShellMain";
 import { TrainlyNavAnchor } from "@/components/navigation/TrainlyNavAnchor";
@@ -17,9 +17,8 @@ export interface AuthPageContentProps {
   returnTo: string | null;
   hasSession: boolean;
   showDevPostgresLogin: boolean;
-  /** Режим postgres без JWT: «демо» только в памяти, без cookie — middleware не пустит в /clients. */
+  /** Режим postgres без JWT: «демо» только в памяти, без cookie — edge proxy не пустит в /clients. */
   postgresNoSession: boolean;
-  devSecretConfigured: boolean;
   /** PostgreSQL + TELEGRAM_BOT_TOKEN: доступен вход через Mini App. */
   telegramLoginConfigured: boolean;
 }
@@ -29,31 +28,12 @@ export function AuthPageContent({
   hasSession,
   showDevPostgresLogin,
   postgresNoSession,
-  devSecretConfigured,
   telegramLoginConfigured,
 }: AuthPageContentProps): ReactElement {
   const router = useRouter();
   const { enterDemoAuth } = useMockApp();
-  const [telegramInitReady, setTelegramInitReady] = useState(false);
   const [telegramBusy, setTelegramBusy] = useState(false);
   const [telegramManualError, setTelegramManualError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async (): Promise<void> => {
-      for (let i = 0; i < 80 && !cancelled; i++) {
-        const raw = window.Telegram?.WebApp?.initData;
-        if (typeof raw === "string" && raw.length > 0) {
-          setTelegramInitReady(true);
-          return;
-        }
-        await new Promise<void>((r) => setTimeout(r, 50));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const overviewSkipHref = returnTo ?? "/overview";
 
@@ -72,13 +52,22 @@ export function AuthPageContent({
 
   const onTelegramLogin = useCallback(async (): Promise<void> => {
     const initData = window.Telegram?.WebApp?.initData;
-    if (typeof initData !== "string" || initData.length === 0) return;
+    if (typeof initData !== "string" || initData.length === 0) {
+      setTelegramManualError("Откройте приложение из Telegram (кнопка или меню у бота).");
+      return;
+    }
     setTelegramManualError(null);
     setTelegramBusy(true);
     try {
       const res = await postTelegramWebAppAuth(initData);
       if (!res.ok) {
-        setTelegramManualError(res.error);
+        setTelegramManualError(
+          res.error === "timeout"
+            ? "Сервер не ответил вовремя. Проверьте сеть и попробуйте снова."
+            : res.error === "network"
+              ? "Не удалось связаться с сервером. Попробуйте снова."
+              : res.error,
+        );
         return;
       }
       const dest = returnTo ?? "/overview";
@@ -127,48 +116,19 @@ export function AuthPageContent({
         Клиенты, тренировки, график, оплаты и заметки — в одном месте.
       </p>
 
-      <p className="rounded-xl border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--bg-card),transparent_20%)] p-3 text-xs leading-relaxed text-[var(--text-secondary)]">
-        <span className="font-semibold text-[var(--text-primary)]">Вне Telegram:</span> в production вход — только через
-        Telegram Mini App (подпись <span className="font-mono text-[11px]">initData</span>). Обычная ссылка в браузере
-        сама по себе не авторизует. Откройте Trainly из бота; в dev с PostgreSQL можно использовать «Dev: войти».
-      </p>
-
       <div className="premium-surface flex flex-col gap-3 p-4">
         <button
           type="button"
-          disabled={
-            !telegramLoginConfigured ||
-            !telegramInitReady ||
-            telegramBusy ||
-            hasSession
-          }
+          disabled={!telegramLoginConfigured || telegramBusy || hasSession}
           onClick={() => void onTelegramLogin()}
           className="app-btn w-full rounded-2xl bg-[var(--tg-accent)] px-4 py-3.5 text-center text-[15px] font-semibold text-white shadow-app-primary disabled:cursor-not-allowed disabled:opacity-40"
-          title={
-            !telegramLoginConfigured
-              ? "Нужны PostgreSQL и TELEGRAM_BOT_TOKEN"
-              : !telegramInitReady
-                ? "Откройте приложение из Telegram Mini App"
-                : undefined
-          }
+          title={!telegramLoginConfigured ? "Сервер ещё не настроен для входа через Telegram" : undefined}
         >
           {telegramBusy ? "Входим…" : "Войти через Telegram"}
         </button>
-        <p className="text-center text-xs leading-relaxed text-[var(--tg-muted)]">
-          {telegramLoginConfigured
-            ? "В Mini App данные передаются подписью Telegram; сервер проверяет initData и выставляет сессию."
-            : "В продакшене вход выполняется через Telegram Mini App при настроенной базе и токене бота."}
-        </p>
         {telegramManualError != null && telegramManualError.length > 0 ? (
           <p className="text-center text-xs leading-relaxed text-[var(--text-primary)]">
             Ошибка входа: <span className="font-mono">{telegramManualError}</span>
-          </p>
-        ) : null}
-        {postgresNoSession ? (
-          <p className="text-center text-xs leading-relaxed text-[var(--tg-muted)]">
-            Включён <span className="font-mono text-[11px]">DATABASE_URL</span>: без cookie-сессии middleware не пускает в клиенты и обзор. «Продолжить в демо» только обновляет локальное демо в памяти и{" "}
-            <span className="font-semibold text-[var(--text-secondary)]">не создаёт вход в БД</span>.
-            {showDevPostgresLogin ? " Нажмите «Dev: войти» выше." : null}
           </p>
         ) : null}
         {showDevPostgresLogin ? (
@@ -179,12 +139,6 @@ export function AuthPageContent({
           >
             Dev: войти (PostgreSQL + cookie)
           </button>
-        ) : null}
-        {postgresNoSession && process.env.NODE_ENV !== "production" && !devSecretConfigured ? (
-          <p className="rounded-xl border border-[color:color-mix(in_srgb,var(--warning),transparent_45%)] bg-[color:color-mix(in_srgb,var(--warning),transparent_88%)] px-3 py-2 text-center text-xs leading-relaxed text-[var(--text-primary)]">
-            Нет <span className="font-mono">TRAINLY_DEV_AUTH_SECRET</span> в <span className="font-mono">.env.local</span> — кнопка dev-входа скрыта. Задайте секрет и перезапустите dev, либо уберите{" "}
-            <span className="font-mono">DATABASE_URL</span> для полностью локального mock.
-          </p>
         ) : null}
         {!postgresNoSession ? (
           <button

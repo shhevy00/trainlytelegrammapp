@@ -12,7 +12,7 @@ function authHref(returnTo: string): string {
 }
 
 /**
- * С `DATABASE_URL` и без JWT middleware не пускает на /overview — ссылки ведут на /auth с returnTo.
+ * С `DATABASE_URL` и без JWT edge proxy не пускает на /overview — ссылки ведут на /auth с returnTo.
  * В mock-режиме — прямые ссылки в приложение.
  */
 export default async function WelcomePage(): Promise<ReactElement> {
@@ -44,14 +44,6 @@ export default async function WelcomePage(): Promise<ReactElement> {
         returnTo="/overview"
       />
       <WelcomePageContent />
-      {gateAuth ? (
-        <p className="text-xs leading-relaxed text-[var(--tg-muted)]">
-          Включён режим PostgreSQL: без сессии разделы приложения закрыты middleware. Если приложение открыто из Telegram Mini
-          App и задан <span className="font-mono text-[11px]">TELEGRAM_BOT_TOKEN</span>, вход выполняется автоматически;
-          иначе нажмите кнопку ниже — откроется экран входа; в development при заданном{" "}
-          <span className="font-mono text-[11px]">TRAINLY_DEV_AUTH_SECRET</span> можно войти одной кнопкой там же.
-        </p>
-      ) : null}
       <div className="mt-2 flex flex-col gap-2">
         <a href={primaryHref} className={welcomeCtaPrimary}>
           {primaryLabel}

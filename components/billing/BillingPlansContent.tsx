@@ -66,7 +66,8 @@ export function BillingPlansContent({ environment, yookassaConfigured }: Billing
         <div className="flex max-w-full flex-col gap-1 text-[14px] leading-snug text-[var(--text-secondary)] sm:text-[15px]">
           <p className="min-w-0">Тариф под размер вашей базы клиентов.</p>
           <p className="min-w-0 text-[var(--tg-muted)]">
-            Клиенты, тренировки, график, оплаты и AI-подготовки в одном дневнике.
+            Клиенты, тренировки, график и оплаты занятий — в одном дневнике. Сценарии «подсказок» в интерфейсе — демо
+            без реальной нейросети; оплачиваемые лимиты ИИ в v1 не продаются.
           </p>
         </div>
         <TrustChips />
@@ -104,10 +105,10 @@ export function BillingPlansContent({ environment, yookassaConfigured }: Billing
           helperLine="Оптимально для большинства тренеров"
           features={[
             "60 активных клиентов",
-            "150 AI-подготовок / мес",
+            "Журнал и история упражнений",
             "Безлимит шаблонов",
-            "История упражнений",
             "Заметки и ограничения",
+            "Приоритетная поддержка (позже)",
           ]}
           ctaLabel="Выбрать Pro"
           ctaHref="/billing/checkout?plan=pro"
@@ -120,7 +121,6 @@ export function BillingPlansContent({ environment, yookassaConfigured }: Billing
           helperLine="Для небольшой базы клиентов"
           features={[
             "15 активных клиентов",
-            "30 AI-подготовок / мес",
             "Безлимит тренировок",
             "График",
             "Шаблоны",
@@ -137,9 +137,9 @@ export function BillingPlansContent({ environment, yookassaConfigured }: Billing
           helperLine="Для большой базы клиентов"
           features={[
             "150 активных клиентов",
-            "500 AI-подготовок / мес",
-            "Приоритетная поддержка позже",
-            "Экспорт позже",
+            "Расширенная аналитика (позже)",
+            "Приоритетная поддержка (позже)",
+            "Экспорт (позже)",
           ]}
           ctaLabel="Выбрать Max"
           ctaHref="/billing/checkout?plan=max"

@@ -113,7 +113,7 @@ export function BillingCheckoutContent({
         <p className="mt-3 text-sm leading-relaxed text-[var(--text-secondary)]">{plan.summaryLine}</p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)] marker:text-[var(--tg-muted)]">
           <li>Безлимит тренировок в рамках тарифа (после запуска сервера)</li>
-          <li>AI-подготовки по лимиту тарифа</li>
+          <li>Дальнейшие функции — по дорожной карте продукта (без отдельной оплаты за демо-подсказки в v1)</li>
         </ul>
       </div>
 

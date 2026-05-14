@@ -29,6 +29,8 @@ import type { MockLifecyclePersisted, MockSubscriptionStatus } from "@/lib/mock/
 import { formatOverviewHumanDate, isoDayLocal } from "@/lib/overview/dailyOperations";
 import { nextPendingSlotForClient } from "@/lib/clients/clientAttention";
 
+const TRAINLY_DEV_TELEGRAM_USER_ID = BigInt("9000000000000");
+
 function todayIsoInTrainerTz(timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone.length > 0 ? timezone : "UTC",
@@ -85,9 +87,14 @@ function buildLifecycle(
 ): MockLifecyclePersisted {
   const st =
     access?.accessStatus != null ? parseTrainerProductAccessStatus(access.accessStatus) : "demo_unlimited";
+  const authStatus: "authenticated" | "authenticated_demo" =
+    trainer.telegramUserId != null && trainer.telegramUserId !== TRAINLY_DEV_TELEGRAM_USER_ID
+      ? "authenticated"
+      : "authenticated_demo";
+
   return {
     v: 1,
-    mockAuthStatus: "authenticated_demo",
+    mockAuthStatus: authStatus,
     mockLegalStatus: requiredLegalComplete ? "accepted" : "not_accepted",
     mockProfileSetupStatus: trainer.displayName.trim().length > 0 ? "completed" : "not_completed",
     mockOnboardingStatus: trainer.onboardingSeenAt != null ? "seen" : "not_seen",
@@ -366,16 +373,17 @@ export async function loadTrainlySnapshot(db: AppDatabase, trainerId: string): P
     paymentsByClient.set(p.clientId, list);
   }
 
-  const completedWorkoutsByClient = new Map<string, (typeof workouts.$inferSelect)[]>();
+  /** Только факты тренировок (`completed`), без заметок — для KPI и «последней тренировки». */
+  const completedFactWorkoutsByClient = new Map<string, (typeof workouts.$inferSelect)[]>();
   for (const w of workoutRows) {
-    if (w.status !== "completed" && w.status !== "completed_as_note") continue;
-    const list = completedWorkoutsByClient.get(w.clientId) ?? [];
+    if (w.status !== "completed") continue;
+    const list = completedFactWorkoutsByClient.get(w.clientId) ?? [];
     list.push(w);
-    completedWorkoutsByClient.set(w.clientId, list);
+    completedFactWorkoutsByClient.set(w.clientId, list);
   }
 
   const enrichedClients: MockClient[] = clientRows.map((c) => {
-    const list = (completedWorkoutsByClient.get(c.id) ?? []).sort(
+    const list = (completedFactWorkoutsByClient.get(c.id) ?? []).sort(
       (a, b) => (b.completedAt?.getTime() ?? 0) - (a.completedAt?.getTime() ?? 0),
     );
     const last = list[0];

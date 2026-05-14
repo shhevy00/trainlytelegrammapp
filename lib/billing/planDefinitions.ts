@@ -11,7 +11,7 @@ export const TRIAL_PLAN_PUBLIC = {
   priceLine: "0 ₽",
   periodLabel: "14 дней",
   helperLine: "Без карты · без обязательств",
-  features: ["Все функции Pro", "30 AI-подготовок", "Без карты"] as const,
+  features: ["Все функции Pro", "14 дней без карты", "Без обязательств"] as const,
 };
 
 export interface PaidPlanCheckoutInfo {
@@ -27,19 +27,19 @@ export const PAID_PLAN_CHECKOUT: Record<PaidPlanSlug, PaidPlanCheckoutInfo> = {
     slug: "start",
     name: "Start",
     amountRub: 690,
-    summaryLine: "15 активных клиентов · 30 AI-подготовок / мес · безлимит тренировок",
+    summaryLine: "15 активных клиентов · безлимит тренировок · график и шаблоны",
   },
   pro: {
     slug: "pro",
     name: "Pro",
     amountRub: 1190,
-    summaryLine: "60 активных клиентов · 150 AI-подготовок / мес",
+    summaryLine: "60 активных клиентов · журнал и шаблоны",
   },
   max: {
     slug: "max",
     name: "Max",
     amountRub: 2490,
-    summaryLine: "150 активных клиентов · 500 AI-подготовок / мес",
+    summaryLine: "150 активных клиентов · расширенные функции позже",
   },
 };
 
@@ -85,7 +85,7 @@ export function getLegalTariffDraftBlocks(): readonly { title: string; lines: re
       lines: [
         `${PAID_PLAN_CHECKOUT.start.amountRub.toLocaleString("ru-RU")} ₽ / мес`,
         "15 активных клиентов",
-        "30 AI-подготовок / мес",
+        "Безлимит тренировок, график, шаблоны",
       ],
     },
     {
@@ -93,7 +93,7 @@ export function getLegalTariffDraftBlocks(): readonly { title: string; lines: re
       lines: [
         `${PAID_PLAN_CHECKOUT.pro.amountRub.toLocaleString("ru-RU")} ₽ / мес`,
         "60 активных клиентов",
-        "150 AI-подготовок / мес",
+        "Журнал, шаблоны, заметки",
         "Лучший выбор",
       ],
     },
@@ -102,7 +102,7 @@ export function getLegalTariffDraftBlocks(): readonly { title: string; lines: re
       lines: [
         `${PAID_PLAN_CHECKOUT.max.amountRub.toLocaleString("ru-RU")} ₽ / мес`,
         "150 активных клиентов",
-        "500 AI-подготовок / мес",
+        "Расширенные функции позже",
       ],
     },
   ];

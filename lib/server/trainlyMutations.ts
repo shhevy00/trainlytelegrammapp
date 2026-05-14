@@ -81,11 +81,30 @@ export async function dbAddCompletedWorkout(
 ): Promise<void> {
   await assertClientOwned(db, trainerId, entry.clientId);
   await db.transaction(async (tx) => {
+    let linkedScheduleId: string | null = entry.scheduleItemId ?? null;
+    if (linkedScheduleId != null) {
+      const slotRows = await tx
+        .select({ id: scheduleItems.id })
+        .from(scheduleItems)
+        .where(
+          and(
+            eq(scheduleItems.id, linkedScheduleId),
+            eq(scheduleItems.trainerId, trainerId),
+            eq(scheduleItems.clientId, entry.clientId),
+            inArray(scheduleItems.status, ["planned", "upcoming"]),
+          ),
+        )
+        .limit(1);
+      if (slotRows.length === 0) {
+        linkedScheduleId = null;
+      }
+    }
+
     await tx.insert(workouts).values({
       id: entry.id,
       trainerId,
       clientId: entry.clientId,
-      scheduleItemId: entry.scheduleItemId ?? null,
+      scheduleItemId: linkedScheduleId,
       templateId: null,
       status: "completed",
       title: entry.title,
@@ -135,15 +154,18 @@ export async function dbAddCompletedWorkout(
       .limit(1);
     const rem = cur[0]?.remainingSessions ?? 0;
     const next = spendOneClientSessionBalance(rem);
-    await tx.update(clients).set({ remainingSessions: next, updatedAt: new Date() }).where(eq(clients.id, entry.clientId));
+    await tx
+      .update(clients)
+      .set({ remainingSessions: next, updatedAt: new Date() })
+      .where(and(eq(clients.id, entry.clientId), eq(clients.trainerId, trainerId)));
 
-    if (entry.scheduleItemId != null) {
+    if (linkedScheduleId != null) {
       await tx
         .update(scheduleItems)
         .set({ status: "completed", updatedAt: new Date() })
         .where(
           and(
-            eq(scheduleItems.id, entry.scheduleItemId),
+            eq(scheduleItems.id, linkedScheduleId),
             eq(scheduleItems.trainerId, trainerId),
             inArray(scheduleItems.status, ["planned", "upcoming"]),
           ),
@@ -264,11 +286,15 @@ export async function dbRecordCoachPayment(
   },
 ): Promise<void> {
   await assertClientOwned(db, trainerId, payload.clientId);
+  if (!Number.isFinite(payload.sessionsAdded) || payload.sessionsAdded < 1) {
+    throw new Error("sessions_added_invalid");
+  }
+  const sessionsAdded = Math.floor(payload.sessionsAdded);
   await db.transaction(async (tx) => {
     await tx.insert(clientSessionPayments).values({
       trainerId,
       clientId: payload.clientId,
-      sessionsAdded: payload.sessionsAdded,
+      sessionsAdded,
       amountRub: payload.amountRub,
       comment: payload.comment,
     });
@@ -281,10 +307,10 @@ export async function dbRecordCoachPayment(
     await tx
       .update(clients)
       .set({
-        remainingSessions: rem + payload.sessionsAdded,
+        remainingSessions: rem + sessionsAdded,
         updatedAt: new Date(),
       })
-      .where(eq(clients.id, payload.clientId));
+      .where(and(eq(clients.id, payload.clientId), eq(clients.trainerId, trainerId)));
   });
 }
 
@@ -313,46 +339,49 @@ export async function dbCreateWorkoutTemplate(
   if (errors.length > 0) return { ok: false, errors };
   await assertClientOwned(db, trainerId, input.clientId);
   const normalizedName = normalizeTemplateName(input.name);
-  const taken = await db
-    .select({ id: workoutTemplates.id })
-    .from(workoutTemplates)
-    .where(
-      and(
-        eq(workoutTemplates.trainerId, trainerId),
-        eq(workoutTemplates.clientId, input.clientId),
-        eq(workoutTemplates.name, normalizedName),
-        isNull(workoutTemplates.archivedAt),
-      ),
-    )
-    .limit(1);
-  if (taken.length > 0) {
-    return { ok: false, errors: ["У этого клиента уже есть шаблон с таким названием."] };
-  }
 
-  const insertedTpl = await db
-    .insert(workoutTemplates)
-    .values({
-      trainerId,
-      clientId: input.clientId,
-      name: normalizedName,
-      description: input.description?.trim() || null,
-    })
-    .returning({ id: workoutTemplates.id });
-  const tplId = insertedTpl[0]?.id;
-  if (tplId == null) return { ok: false, errors: ["Не удалось создать шаблон."] };
+  return db.transaction(async (tx) => {
+    const taken = await tx
+      .select({ id: workoutTemplates.id })
+      .from(workoutTemplates)
+      .where(
+        and(
+          eq(workoutTemplates.trainerId, trainerId),
+          eq(workoutTemplates.clientId, input.clientId),
+          eq(workoutTemplates.name, normalizedName),
+          isNull(workoutTemplates.archivedAt),
+        ),
+      )
+      .limit(1);
+    if (taken.length > 0) {
+      return { ok: false, errors: ["У этого клиента уже есть шаблон с таким названием."] };
+    }
 
-  for (let i = 0; i < input.exercises.length; i++) {
-    const row = input.exercises[i];
-    await db.insert(workoutTemplateExercises).values({
-      trainerId,
-      templateId: tplId,
-      orderIndex: i,
-      name: normalizeTemplateName(row.name),
-      plannedSets: row.plannedSets ?? null,
-      comment: row.comment?.trim() || null,
-    });
-  }
-  return { ok: true, id: tplId };
+    const insertedTpl = await tx
+      .insert(workoutTemplates)
+      .values({
+        trainerId,
+        clientId: input.clientId,
+        name: normalizedName,
+        description: input.description?.trim() || null,
+      })
+      .returning({ id: workoutTemplates.id });
+    const tplId = insertedTpl[0]?.id;
+    if (tplId == null) return { ok: false, errors: ["Не удалось создать шаблон."] };
+
+    for (let i = 0; i < input.exercises.length; i++) {
+      const row = input.exercises[i];
+      await tx.insert(workoutTemplateExercises).values({
+        trainerId,
+        templateId: tplId,
+        orderIndex: i,
+        name: normalizeTemplateName(row.name),
+        plannedSets: row.plannedSets ?? null,
+        comment: row.comment?.trim() || null,
+      });
+    }
+    return { ok: true, id: tplId };
+  });
 }
 
 export async function dbUpdateWorkoutTemplate(
@@ -402,7 +431,11 @@ export async function dbUpdateWorkoutTemplate(
     .where(eq(workoutTemplates.id, templateId));
 
   if (input.exercises !== undefined) {
-    await db.delete(workoutTemplateExercises).where(eq(workoutTemplateExercises.templateId, templateId));
+    await db
+      .delete(workoutTemplateExercises)
+      .where(
+        and(eq(workoutTemplateExercises.templateId, templateId), eq(workoutTemplateExercises.trainerId, trainerId)),
+      );
     for (let i = 0; i < input.exercises.length; i++) {
       const row = input.exercises[i];
       await db.insert(workoutTemplateExercises).values({

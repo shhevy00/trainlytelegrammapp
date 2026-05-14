@@ -38,7 +38,6 @@ export default async function AuthPage({ searchParams }: AuthPageProps): Promise
       hasSession={hasSession}
       showDevPostgresLogin={showDevPostgresLogin}
       postgresNoSession={postgresNoSession}
-      devSecretConfigured={devSecretConfigured}
       telegramLoginConfigured={telegramLoginConfigured}
     />
   );

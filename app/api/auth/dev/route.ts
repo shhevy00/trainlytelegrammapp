@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
 import { signSessionToken, sessionCookieName } from "@/lib/auth/jwt";
 import { getDb } from "@/lib/db/server";
+import { logServerError } from "@/lib/server/logServerError";
 import { ensureTrainerForTelegramUser } from "@/lib/server/ensureTrainer";
 import { dbAcceptLegal } from "@/lib/server/trainlyMutations";
 import { trainers } from "@/db/schema";
@@ -15,7 +16,7 @@ const DEV_TELEGRAM_ID = BigInt("9000000000000");
  * Заголовок: `x-trainly-dev-secret` = `TRAINLY_DEV_AUTH_SECRET`.
  */
 export async function POST(req: Request): Promise<Response> {
-  if (process.env.NODE_ENV === "production") {
+  if (process.env.NODE_ENV === "production" || process.env.VERCEL_ENV === "production") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const secret = process.env.TRAINLY_DEV_AUTH_SECRET;
@@ -28,32 +29,37 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const db = getDb();
-  const { trainerId } = await ensureTrainerForTelegramUser(db, {
-    telegramUserId: DEV_TELEGRAM_ID,
-    displayName: "Dev тренер",
-  });
+  try {
+    const { trainerId } = await ensureTrainerForTelegramUser(db, {
+      telegramUserId: DEV_TELEGRAM_ID,
+      displayName: "Dev тренер",
+    });
 
-  await db
-    .update(trainers)
-    .set({
-      onboardingSeenAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(eq(trainers.id, trainerId));
+    await db
+      .update(trainers)
+      .set({
+        onboardingSeenAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(trainers.id, trainerId));
 
-  await dbAcceptLegal(db, trainerId);
+    await dbAcceptLegal(db, trainerId);
 
-  const token = await signSessionToken({
-    trainerId,
-    telegramUserId: DEV_TELEGRAM_ID.toString(),
-  });
-  const res = NextResponse.json({ ok: true as const, trainerId });
-  res.cookies.set(sessionCookieName(), token, {
-    httpOnly: true,
-    secure: false,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7,
-  });
-  return res;
+    const token = await signSessionToken({
+      trainerId,
+      telegramUserId: DEV_TELEGRAM_ID.toString(),
+    });
+    const res = NextResponse.json({ ok: true as const, trainerId });
+    res.cookies.set(sessionCookieName(), token, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 60 * 60 * 24 * 7,
+    });
+    return res;
+  } catch (e) {
+    logServerError("api/auth/dev", e);
+    return NextResponse.json({ error: "dev_auth_failed" }, { status: 500 });
+  }
 }

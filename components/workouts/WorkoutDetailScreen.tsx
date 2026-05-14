@@ -64,7 +64,7 @@ export function WorkoutDetailScreen({ workoutId }: WorkoutDetailScreenProps): Re
 
   if (!entry) {
     return (
-      <main className="flex w-full flex-col gap-4 px-4 py-6">
+      <main className="flex w-full flex-col gap-4 px-4 py-6 pb-[calc(6rem+max(0.35rem,env(safe-area-inset-bottom,0px)))]">
         <Card>
           <h1 className="font-display text-lg font-semibold">Запись не найдена</h1>
           <p className="mt-2 text-sm text-[var(--tg-muted)]">Возможно, запись удалена или ещё не сохранена.</p>

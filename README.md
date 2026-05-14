@@ -7,7 +7,7 @@
 ## Источник данных / безопасность production
 
 - **Mock** (данные в памяти) — только для **локальной разработки и демо** без `DATABASE_URL` (см. [`lib/config/dataSource.ts`](lib/config/dataSource.ts)).
-- **Production** требует **`DATABASE_URL`**; тихий fallback в mock **запрещён** — при неверной конфигурации будет ошибка (например 503 от middleware).
+- **Production** требует **`DATABASE_URL`**; тихий fallback в mock **запрещён** — при неверной конфигурации будет ошибка (например 503 от edge `proxy`).
 - **`TRAINLY_USE_MOCK_DATA=true` в production runtime запрещён** (явная ошибка конфигурации).
 - Персональные данные: для прод в РФ — PostgreSQL на площадке в РФ, см. **[`db/README.md`](db/README.md)**.
 
@@ -30,7 +30,7 @@ npm run dev
 2. Примените миграции: `npm run db:migrate:run`
 3. Проверка подключения: `npm run db:smoke`
 
-**PostgreSQL без cookie:** [`middleware.ts`](middleware.ts) редиректит защищённые маршруты (в т.ч. `/overview`) на `/welcome`. Кнопки welcome ведут на [`/auth`](app/auth/page.tsx); в development при заданном `TRAINLY_DEV_AUTH_SECRET` на экране входа есть кнопка **«Dev: войти (PostgreSQL + cookie)»** (тот же сценарий, что `POST /api/auth/dev`).
+**PostgreSQL без cookie:** [`proxy.ts`](proxy.ts) (edge) редиректит защищённые маршруты (в т.ч. `/overview`) на `/welcome`. Кнопки welcome ведут на [`/auth`](app/auth/page.tsx); в development при заданном `TRAINLY_DEV_AUTH_SECRET` на экране входа есть кнопка **«Dev: войти (PostgreSQL + cookie)»** (тот же сценарий, что `POST /api/auth/dev`).
 
 Подробности по таблицам, миграциям, прод-хостингу БД (в т.ч. РФ): **[`db/README.md`](db/README.md)**.
 

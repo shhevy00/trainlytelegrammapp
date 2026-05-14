@@ -1,6 +1,11 @@
 /**
- * Единая логика «публичный vs защищённый» маршрут приложения для middleware и RSC-оболочки.
- * Должна совпадать с прежней логикой middleware.
+ * Единая логика «публичный vs защищённый» маршрут приложения для edge proxy и RSC-оболочки.
+ *
+ * Сверка с app routes: публичные корни — welcome, auth, legal, privacy, support, legal-consent;
+ * billing/plans и billing/fail; profile/setup. Защищённые области — overview, clients, schedule,
+ * journal, workout, workouts, add-payment, quick-note, start-workout, profile (кроме setup),
+ * account, billing (кроме plans и fail). Корень "/" всегда защищён. Неизвестные пути не защищены
+ * (Next отдаст 404).
  */
 export const TRAINLY_PATHNAME_HEADER = "x-trainly-pathname";
 

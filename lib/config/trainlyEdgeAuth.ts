@@ -4,18 +4,17 @@ import { getTrainlyDataSource } from "@/lib/config/dataSource";
 import { isTrainlyProtectedAppRoute, TRAINLY_PATHNAME_HEADER } from "@/lib/config/trainlyRouteAccess";
 import { sessionCookieName, verifySessionToken } from "@/lib/auth/jwt";
 
-function nextWithPathname(request: NextRequest, pathname: string): NextResponse {
+export function nextWithTrainlyPathname(request: NextRequest, pathname: string): NextResponse {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set(TRAINLY_PATHNAME_HEADER, pathname);
   return NextResponse.next({ request: { headers: requestHeaders } });
 }
 
 /**
- * В режиме postgres без валидной сессии не пускаем в основной UI.
- * Публичные маршруты: welcome, auth, legal, billing/plans, api, static.
- * Во все `next()` передаётся `x-trainly-pathname` для RSC (TrainlyAppShell).
+ * Edge-гейт для Trainly: в режиме postgres на защищённых путях требуется валидная httpOnly-сессия.
+ * Проверка JWT на каждом запросе — намеренно простая модель (jose/jwtVerify); кэш на edge не используется.
  */
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function trainlyEdgeAuthResponse(request: NextRequest): Promise<NextResponse> {
   let dataSource: ReturnType<typeof getTrainlyDataSource>;
   try {
     dataSource = getTrainlyDataSource();
@@ -27,11 +26,11 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   const pathname = request.nextUrl.pathname;
 
   if (dataSource !== "postgres") {
-    return nextWithPathname(request, pathname);
+    return nextWithTrainlyPathname(request, pathname);
   }
 
   if (!isTrainlyProtectedAppRoute(pathname)) {
-    return nextWithPathname(request, pathname);
+    return nextWithTrainlyPathname(request, pathname);
   }
 
   const token = request.cookies.get(sessionCookieName())?.value;
@@ -40,12 +39,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
   try {
     await verifySessionToken(token);
-    return nextWithPathname(request, pathname);
+    return nextWithTrainlyPathname(request, pathname);
   } catch {
     return NextResponse.redirect(new URL("/welcome", request.url));
   }
 }
-
-export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico).*)"],
-};
