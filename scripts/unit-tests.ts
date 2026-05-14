@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import { canTrainerWriteCoreProduct } from "../lib/billing/accessGate";
+import { trainlyPaidPlanLabelFromDb } from "../lib/billing/planDefinitions";
 import {
   computeWorkoutVolumeKg,
   countFilledSetsWorkout,
@@ -52,6 +53,10 @@ assert.equal(canTrainerWriteCoreProduct({ accessStatus: "active", validUntil: pa
 assert.equal(canTrainerWriteCoreProduct({ accessStatus: "trial", validUntil: past }), false);
 assert.equal(canTrainerWriteCoreProduct({ accessStatus: "expired", validUntil: null }), false);
 assert.equal(canTrainerWriteCoreProduct({ accessStatus: "cancelled", validUntil: future }), false);
+
+assert.equal(trainlyPaidPlanLabelFromDb("pro"), "Pro");
+assert.equal(trainlyPaidPlanLabelFromDb(null), "не указан");
+assert.equal(trainlyPaidPlanLabelFromDb("unknown_x"), "unknown_x");
 
 // --- paid sessions ---
 assert.equal(spendOneClientSessionBalance(5), 4);

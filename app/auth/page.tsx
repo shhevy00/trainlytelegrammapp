@@ -1,6 +1,7 @@
 import type { ReactElement } from "react";
 import { getTrainerSession } from "@/lib/auth/session";
 import { getTrainlyDataSource } from "@/lib/config/dataSource";
+import { isTelegramMiniAppAuthConfigured } from "@/lib/config/telegramAuthAvailability";
 import { AuthPageContent } from "@/components/auth/AuthPageContent";
 import { sanitizeReturnTo } from "@/lib/navigation/sanitizeReturnTo";
 
@@ -24,6 +25,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps): Promise
   }
 
   const devSecretConfigured = (process.env.TRAINLY_DEV_AUTH_SECRET?.length ?? 0) > 0;
+  const telegramLoginConfigured = isTelegramMiniAppAuthConfigured();
 
   const showDevPostgresLogin =
     process.env.NODE_ENV !== "production" && dataSource === "postgres" && !hasSession && devSecretConfigured;
@@ -37,6 +39,7 @@ export default async function AuthPage({ searchParams }: AuthPageProps): Promise
       showDevPostgresLogin={showDevPostgresLogin}
       postgresNoSession={postgresNoSession}
       devSecretConfigured={devSecretConfigured}
+      telegramLoginConfigured={telegramLoginConfigured}
     />
   );
 }

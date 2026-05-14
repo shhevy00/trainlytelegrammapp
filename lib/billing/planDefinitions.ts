@@ -65,6 +65,14 @@ export function parsePaidPlanSlugStrict(value: string | null): PaidPlanSlug | nu
   return null;
 }
 
+/** Подпись тарифа по коду из БД (trainer_product_access.plan_code). */
+export function trainlyPaidPlanLabelFromDb(planCode: string | null | undefined): string {
+  if (planCode == null || planCode.trim().length === 0) return "не указан";
+  const slug = parsePaidPlanSlugStrict(planCode);
+  if (slug != null) return PAID_PLAN_CHECKOUT[slug].name;
+  return planCode.trim();
+}
+
 /** Черновик для /legal/tariffs — синхронизирован с PAID_PLAN_CHECKOUT и TRIAL_PLAN_PUBLIC. */
 export function getLegalTariffDraftBlocks(): readonly { title: string; lines: readonly string[] }[] {
   return [

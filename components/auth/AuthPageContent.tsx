@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, type ReactElement } from "react";
+import { useCallback, useEffect, useState, type ReactElement } from "react";
 import { enterDevTrainerSessionAction } from "@/app/actions/trainly";
 import { ShellMain } from "@/components/prod-shell/ShellMain";
 import { TrainlyNavAnchor } from "@/components/navigation/TrainlyNavAnchor";
+import { TelegramAutoLogin } from "@/components/telegram/TelegramAutoLogin";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
+import { postTelegramWebAppAuth } from "@/lib/telegram/clientAuth";
 
 const linkCls =
   "font-medium text-[var(--brand-solid)] underline decoration-[color:color-mix(in_srgb,var(--brand-solid),transparent_40%)] underline-offset-2";
@@ -18,6 +20,8 @@ export interface AuthPageContentProps {
   /** Режим postgres без JWT: «демо» только в памяти, без cookie — middleware не пустит в /clients. */
   postgresNoSession: boolean;
   devSecretConfigured: boolean;
+  /** PostgreSQL + TELEGRAM_BOT_TOKEN: доступен вход через Mini App. */
+  telegramLoginConfigured: boolean;
 }
 
 export function AuthPageContent({
@@ -26,9 +30,30 @@ export function AuthPageContent({
   showDevPostgresLogin,
   postgresNoSession,
   devSecretConfigured,
+  telegramLoginConfigured,
 }: AuthPageContentProps): ReactElement {
   const router = useRouter();
   const { enterDemoAuth } = useMockApp();
+  const [telegramInitReady, setTelegramInitReady] = useState(false);
+  const [telegramBusy, setTelegramBusy] = useState(false);
+  const [telegramManualError, setTelegramManualError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async (): Promise<void> => {
+      for (let i = 0; i < 80 && !cancelled; i++) {
+        const raw = window.Telegram?.WebApp?.initData;
+        if (typeof raw === "string" && raw.length > 0) {
+          setTelegramInitReady(true);
+          return;
+        }
+        await new Promise<void>((r) => setTimeout(r, 50));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const overviewSkipHref = returnTo ?? "/overview";
 
@@ -45,8 +70,32 @@ export function AuthPageContent({
     router.push(dest);
   }, [returnTo, router]);
 
+  const onTelegramLogin = useCallback(async (): Promise<void> => {
+    const initData = window.Telegram?.WebApp?.initData;
+    if (typeof initData !== "string" || initData.length === 0) return;
+    setTelegramManualError(null);
+    setTelegramBusy(true);
+    try {
+      const res = await postTelegramWebAppAuth(initData);
+      if (!res.ok) {
+        setTelegramManualError(res.error);
+        return;
+      }
+      const dest = returnTo ?? "/overview";
+      router.refresh();
+      router.push(dest);
+    } finally {
+      setTelegramBusy(false);
+    }
+  }, [returnTo, router]);
+
   return (
     <ShellMain>
+      <TelegramAutoLogin
+        hasSession={hasSession}
+        telegramLoginConfigured={telegramLoginConfigured}
+        returnTo={returnTo}
+      />
       {hasSession ? (
         <div className="rounded-2xl border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--bg-card),transparent_12%)] p-3 text-sm text-[var(--text-secondary)]">
           <p className="font-medium text-[var(--text-primary)]">Сессия уже активна.</p>
@@ -87,15 +136,34 @@ export function AuthPageContent({
       <div className="premium-surface flex flex-col gap-3 p-4">
         <button
           type="button"
-          disabled
-          className="app-btn w-full cursor-not-allowed rounded-2xl bg-[var(--tg-accent)] px-4 py-3.5 text-center text-[15px] font-semibold text-white opacity-40 shadow-app-primary"
-          title="Вход через Telegram будет подключён на сервере"
+          disabled={
+            !telegramLoginConfigured ||
+            !telegramInitReady ||
+            telegramBusy ||
+            hasSession
+          }
+          onClick={() => void onTelegramLogin()}
+          className="app-btn w-full rounded-2xl bg-[var(--tg-accent)] px-4 py-3.5 text-center text-[15px] font-semibold text-white shadow-app-primary disabled:cursor-not-allowed disabled:opacity-40"
+          title={
+            !telegramLoginConfigured
+              ? "Нужны PostgreSQL и TELEGRAM_BOT_TOKEN"
+              : !telegramInitReady
+                ? "Откройте приложение из Telegram Mini App"
+                : undefined
+          }
         >
-          Войти через Telegram
+          {telegramBusy ? "Входим…" : "Войти через Telegram"}
         </button>
         <p className="text-center text-xs leading-relaxed text-[var(--tg-muted)]">
-          В продакшене вход будет выполняться через Telegram Mini App.
+          {telegramLoginConfigured
+            ? "В Mini App данные передаются подписью Telegram; сервер проверяет initData и выставляет сессию."
+            : "В продакшене вход выполняется через Telegram Mini App при настроенной базе и токене бота."}
         </p>
+        {telegramManualError != null && telegramManualError.length > 0 ? (
+          <p className="text-center text-xs leading-relaxed text-[var(--text-primary)]">
+            Ошибка входа: <span className="font-mono">{telegramManualError}</span>
+          </p>
+        ) : null}
         {postgresNoSession ? (
           <p className="text-center text-xs leading-relaxed text-[var(--tg-muted)]">
             Включён <span className="font-mono text-[11px]">DATABASE_URL</span>: без cookie-сессии middleware не пускает в клиенты и обзор. «Продолжить в демо» только обновляет локальное демо в памяти и{" "}

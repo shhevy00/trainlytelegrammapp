@@ -8,6 +8,8 @@ declare global {
   interface Window {
     Telegram?: {
       WebApp?: {
+        /** Подписанная строка для серверной проверки (Mini App). */
+        initData?: string;
         ready: () => void;
         expand: () => void;
         /** Bot API / Mini App 7.7+ */

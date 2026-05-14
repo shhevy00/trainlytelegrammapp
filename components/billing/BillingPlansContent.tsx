@@ -32,7 +32,12 @@ function TrustChips(): ReactElement {
   );
 }
 
-export function BillingPlansContent(): ReactElement {
+export interface BillingPlansContentProps {
+  environment: "mock" | "postgres";
+  yookassaConfigured: boolean;
+}
+
+export function BillingPlansContent({ environment, yookassaConfigured }: BillingPlansContentProps): ReactElement {
   const router = useRouter();
   const { setMockSubscriptionStatus } = useMockApp();
 
@@ -65,6 +70,17 @@ export function BillingPlansContent(): ReactElement {
           </p>
         </div>
         <TrustChips />
+        {environment === "postgres" && yookassaConfigured ? (
+          <p className="rounded-xl border border-[color:color-mix(in_srgb,var(--brand-solid),transparent_65%)] bg-[color:color-mix(in_srgb,var(--brand-solid),transparent_93%)] px-3 py-2 text-xs leading-relaxed text-[var(--text-primary)]">
+            Оплата платных тарифов — через <span className="font-semibold">ЮKassa</span>. После выбора тарифа откроется
+            защищённая страница оплаты.
+          </p>
+        ) : null}
+        {environment === "postgres" && !yookassaConfigured ? (
+          <p className="rounded-xl border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--bg-card),transparent_20%)] px-3 py-2 text-xs leading-relaxed text-[var(--text-secondary)]">
+            Платёжный модуль на сервере не настроен: сейчас доступен только демо-чекаут без реальной оплаты.
+          </p>
+        ) : null}
       </header>
 
       <div className="flex min-w-0 flex-col gap-3 sm:gap-4">
@@ -75,8 +91,9 @@ export function BillingPlansContent(): ReactElement {
           priceLine={`${TRIAL_PLAN_PUBLIC.priceLine} · ${TRIAL_PLAN_PUBLIC.periodLabel}`}
           helperLine={TRIAL_PLAN_PUBLIC.helperLine}
           features={[...TRIAL_PLAN_PUBLIC.features]}
-          ctaLabel="Начать бесплатно"
-          ctaOnClick={() => void onStartTrial()}
+          ctaLabel={environment === "postgres" ? "Продолжить в приложении" : "Начать бесплатно"}
+          ctaHref={environment === "postgres" ? "/overview" : undefined}
+          ctaOnClick={environment === "postgres" ? undefined : () => void onStartTrial()}
         />
         <PricingPlanCard
           variant="hero"
