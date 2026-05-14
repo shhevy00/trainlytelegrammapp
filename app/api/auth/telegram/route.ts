@@ -46,7 +46,9 @@ export async function POST(req: Request): Promise<Response> {
       maxAge: 60 * 60 * 24 * 7,
     });
     return res;
-  } catch {
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[api/auth/telegram]", message);
     return NextResponse.json({ error: "auth_failed" }, { status: 401 });
   }
 }
