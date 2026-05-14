@@ -1,77 +1,54 @@
-# Byte-compiled / cache
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-pip-wheel-metadata/
-*.egg-info/
-.installed.cfg
-*.egg
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# Virtual environments
-.venv/
-venv/
-ENV/
-env/
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
 
-# Environment and secrets
-.env
-.env.*
-!.env.example
-*.pem
-secrets/
+# testing
+/coverage
 
-# IDE / editor
-.cursor/
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# next.js
+/.next/
+/out/
 
-# OS
+# production
+/build
+
+# misc
 .DS_Store
-Thumbs.db
-Desktop.ini
+*.pem
 
-# Testing / coverage
-.pytest_cache/
-.coverage
-htmlcov/
-.tox/
-.nox/
+# Cursor IDE (локальные правила/чаты — не в репозиторий)
+.cursor/
 
-# Jupyter
-.ipynb_checkpoints/
-
-# Logs and local data
-*.log
-logs/
-
-# Node (Mini App / frontend)
-node_modules/
+# debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-.next/
-out/
-.nuxt/
-.cache/
-.parcel-cache/
 
-# Build outputs
-*.local
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+
+# Python / tooling (legacy repo)
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+ENV/
+env/
