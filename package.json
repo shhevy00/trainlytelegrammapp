@@ -1,6 +1,6 @@
 {
   "name": "telegram-app-trainly-v2",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "test:unit": "tsx scripts/unit-tests.ts",
+    "test:integration": "tsx --test scripts/integration/plan-limits.test.ts scripts/integration/yookassa-webhook-fixture.test.ts",
     "clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){if(e&&e.code!=='ENOENT')throw e}\"",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

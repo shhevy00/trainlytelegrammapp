@@ -11,22 +11,36 @@ export function NewClientPageContent(): ReactElement {
   const [goal, setGoal] = useState("");
   const [remainingSessions, setRemainingSessions] = useState("0");
   const [limitation, setLimitation] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitPending, setSubmitPending] = useState(false);
 
   const onSubmit = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
+    if (submitPending) return;
     const trimmed = name.trim();
     if (!trimmed) return;
     const sessions = Number.parseInt(remainingSessions.trim(), 10);
     const safeSessions = Number.isFinite(sessions) && sessions >= 0 ? sessions : 0;
-    const id = await Promise.resolve(
-      addClient({
+    setSubmitPending(true);
+    setSubmitError(null);
+    try {
+      const id = await addClient({
         name: trimmed,
         goal: goal.trim() || undefined,
         remainingSessions: safeSessions,
         limitation: limitation.trim() || undefined,
-      }),
-    );
-    router.push(`/clients/${encodeURIComponent(id)}`);
+      });
+      router.push(`/clients/${encodeURIComponent(id)}`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Не удалось добавить клиента.";
+      setSubmitError(
+        msg.includes("лимит") || msg.includes("trainly_product")
+          ? `${msg} Перейдите в раздел «Подписка», чтобы увеличить лимит.`
+          : msg,
+      );
+    } finally {
+      setSubmitPending(false);
+    }
   };
 
   return (
@@ -36,7 +50,7 @@ export function NewClientPageContent(): ReactElement {
         <p className="mt-1 text-sm text-[var(--tg-muted)]">Минимальные поля — можно дополнить позже.</p>
       </header>
 
-      <form className="flex flex-col gap-4" onSubmit={(e) => void onSubmit(e)}>
+      <form className="trainly-surface-card flex flex-col gap-4 p-4" onSubmit={(e) => void onSubmit(e)}>
         <label className="flex flex-col gap-1.5">
           <span className="text-sm font-medium text-[var(--text-primary)]">Имя</span>
           <input
@@ -81,11 +95,14 @@ export function NewClientPageContent(): ReactElement {
           />
         </label>
 
+        {submitError ? <p className="text-sm font-medium text-[var(--danger)]">{submitError}</p> : null}
+
         <button
           type="submit"
-          className="app-btn mt-2 min-h-[48px] rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-center text-[15px] font-semibold text-white shadow-app-primary"
+          disabled={submitPending}
+          className="app-btn mt-2 min-h-[48px] rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-center text-[15px] font-semibold text-white shadow-app-primary disabled:opacity-60"
         >
-          Сохранить клиента
+          {submitPending ? "Сохранение…" : "Сохранить клиента"}
         </button>
       </form>
     </main>

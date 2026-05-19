@@ -1,3 +1,4 @@
+import { isTrainlyMockDataSource } from "@/lib/config/dataSource";
 import type { TrainlyProductAccessStatus } from "@/lib/trainly/snapshotTypes";
 
 export class TrainlyProductAccessDeniedError extends Error {
@@ -17,7 +18,17 @@ export function parseTrainerProductAccessStatus(v: string): TrainlyProductAccess
   ) {
     return v;
   }
-  return "demo_unlimited";
+  return "expired";
+}
+
+/** Разрешена ли ручная смена подписки через server action (только mock в non-production). */
+export function canOverrideSubscriptionStatusInRuntime(): boolean {
+  if (process.env.NODE_ENV === "production") return false;
+  try {
+    return isTrainlyMockDataSource();
+  } catch {
+    return false;
+  }
 }
 
 export interface TrainerProductAccessRow {

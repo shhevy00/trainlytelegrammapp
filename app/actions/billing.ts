@@ -1,10 +1,16 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidateTrainlyBillingPaths } from "@/lib/server/revalidatePaths";
 import { eq } from "drizzle-orm";
 import { getTrainerSession } from "@/lib/auth/session";
 import { getDb } from "@/lib/db/server";
-import { PAID_PLAN_CHECKOUT, type PaidPlanSlug } from "@/lib/billing/planDefinitions";
+import {
+  getPaidPlanCheckoutQuote,
+  isPaidPlanSlug,
+  parseBillingPeriodParam,
+  type BillingPeriod,
+  type PaidPlanSlug,
+} from "@/lib/billing/planDefinitions";
 import { postYookassaCreatePayment } from "@/lib/server/yookassaCreatePayment";
 import { trainlyOrders } from "@/db/schema";
 
@@ -13,16 +19,14 @@ function publicAppBaseUrl(): string {
   return raw.replace(/\/$/, "");
 }
 
-function isPaidPlanSlug(v: string): v is PaidPlanSlug {
-  return v === "start" || v === "pro" || v === "max";
-}
-
 export async function createTrainlyYookassaCheckoutAction(
   planSlug: string,
+  billingPeriodRaw: string,
 ): Promise<{ ok: true; confirmationUrl: string } | { ok: false; error: string }> {
   if (!isPaidPlanSlug(planSlug)) {
     return { ok: false, error: "Некорректный тариф." };
   }
+  const billingPeriod: BillingPeriod = parseBillingPeriodParam(billingPeriodRaw);
   const session = await getTrainerSession();
   if (session == null) {
     return { ok: false, error: "Нужна сессия тренера." };
@@ -33,7 +37,7 @@ export async function createTrainlyYookassaCheckoutAction(
     return { ok: false, error: "ЮKassa не настроена (YOOKASSA_SHOP_ID / YOOKASSA_SECRET_KEY)." };
   }
 
-  const plan = PAID_PLAN_CHECKOUT[planSlug];
+  const quote = getPaidPlanCheckoutQuote(planSlug, billingPeriod);
   const db = getDb();
   const trainerId = session.trainerId;
 
@@ -42,9 +46,13 @@ export async function createTrainlyYookassaCheckoutAction(
     .values({
       trainerId,
       planCode: planSlug,
-      amountRub: plan.amountRub,
+      amountRub: quote.amountRub,
       status: "pending",
-      metadataJson: { source: "billing_checkout", planName: plan.name },
+      metadataJson: {
+        source: "billing_checkout",
+        planName: quote.name,
+        billingPeriod: quote.billingPeriod,
+      },
     })
     .returning({ id: trainlyOrders.id });
 
@@ -53,9 +61,9 @@ export async function createTrainlyYookassaCheckoutAction(
   }
 
   const orderId = order.id;
-  const amountValue = plan.amountRub.toFixed(2);
+  const amountValue = quote.amountRub.toFixed(2);
   const base = publicAppBaseUrl();
-  const returnUrl = `${base}/billing/success?orderId=${encodeURIComponent(orderId)}&plan=${encodeURIComponent(planSlug)}`;
+  const returnUrl = `${base}/billing/success?orderId=${encodeURIComponent(orderId)}&plan=${encodeURIComponent(planSlug)}&period=${encodeURIComponent(quote.billingPeriod)}`;
 
   const payment = await postYookassaCreatePayment({
     shopId,
@@ -64,11 +72,12 @@ export async function createTrainlyYookassaCheckoutAction(
     amountValue,
     currency: "RUB",
     returnUrl,
-    description: `Trainly ${plan.name}`,
+    description: `Trainly ${quote.name} (${quote.periodLabelRu})`,
     metadata: {
       trainly_trainer_id: trainerId,
       trainly_order_id: orderId,
       plan_code: planSlug,
+      billing_period: quote.billingPeriod,
     },
   });
 
@@ -85,6 +94,6 @@ export async function createTrainlyYookassaCheckoutAction(
     .set({ yookassaPaymentId: payment.paymentId, updatedAt: new Date() })
     .where(eq(trainlyOrders.id, orderId));
 
-  revalidatePath("/billing");
+  revalidateTrainlyBillingPaths();
   return { ok: true, confirmationUrl: payment.confirmationUrl };
 }

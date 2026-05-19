@@ -2,29 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactElement } from "react";
-
-const PUBLIC_PREFIXES = [
-  "/welcome",
-  "/auth",
-  "/legal",
-  "/legal-consent",
-  "/privacy",
-  "/support",
-  "/billing/plans",
-  "/billing/checkout",
-  "/billing/success",
-  "/billing/fail",
-  "/billing/history",
-  "/billing/manage",
-  "/profile/setup",
-];
-
-function isPublicPath(pathname: string): boolean {
-  for (const p of PUBLIC_PREFIXES) {
-    if (pathname === p || pathname.startsWith(`${p}/`)) return true;
-  }
-  return false;
-}
+import { isTrainlyLegalConsentPublicPath } from "@/lib/config/trainlyRouteAccess";
 
 /**
  * В live-режиме PostgreSQL: если обязательные юридические документы не приняты, уводим на экран согласия.
@@ -35,7 +13,7 @@ export function LegalConsentRedirect({ legalAccepted }: { legalAccepted: boolean
 
   useEffect(() => {
     if (legalAccepted) return;
-    if (isPublicPath(pathname)) return;
+    if (isTrainlyLegalConsentPublicPath(pathname)) return;
     if (pathname.startsWith("/api/")) return;
     router.replace("/legal-consent");
   }, [legalAccepted, pathname, router]);

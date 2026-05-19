@@ -15,7 +15,13 @@ import {
   workoutTemplates,
   workouts,
 } from "@/db/schema";
+import { recomputeJournalWorkoutStats } from "@/lib/journal/journalEntryStats";
+import type {
+  JournalNoteUpdateInput,
+  JournalWorkoutUpdateInput,
+} from "@/lib/journal/validateJournalUpdate";
 import type { JournalCompletedWorkout, JournalNoteEntry } from "@/lib/types";
+import { dbReplaceWorkoutStructure } from "@/lib/server/workoutDrafts";
 import type { CoachQuickNoteType } from "@/lib/mock/coachLedger";
 import { spendOneClientSessionBalance } from "@/lib/coach/paidSessions";
 import {
@@ -31,6 +37,8 @@ import {
 } from "@/lib/workout/templates";
 import type { MockSubscriptionStatus } from "@/lib/mock/lifecycleTypes";
 import { workoutExerciseIdForPostgres } from "@/lib/workout/ids";
+import { canTrainerAddClient, TrainlyClientLimitError } from "@/lib/billing/planLimits";
+import { parseTrainerProductAccessStatus } from "@/lib/billing/accessGate";
 
 async function assertClientOwned(
   db: AppDatabase,
@@ -59,6 +67,28 @@ export async function dbAddClient(
   trainerId: string,
   payload: { name: string; goal?: string; remainingSessions?: number; limitation?: string },
 ): Promise<string> {
+  const [accessRow] = await db
+    .select({
+      accessStatus: trainerProductAccess.accessStatus,
+      planCode: trainerProductAccess.planCode,
+    })
+    .from(trainerProductAccess)
+    .where(eq(trainerProductAccess.trainerId, trainerId))
+    .limit(1);
+  const accessStatus = parseTrainerProductAccessStatus(accessRow?.accessStatus ?? "demo_unlimited");
+  const activeRows = await db
+    .select({ id: clients.id })
+    .from(clients)
+    .where(and(eq(clients.trainerId, trainerId), eq(clients.lifecycle, "active")));
+  const limitCheck = canTrainerAddClient({
+    accessStatus,
+    planCode: accessRow?.planCode ?? null,
+    activeClientCount: activeRows.length,
+  });
+  if (!limitCheck.ok) {
+    throw new TrainlyClientLimitError(limitCheck.limit);
+  }
+
   const inserted = await db
     .insert(clients)
     .values({
@@ -81,6 +111,16 @@ export async function dbAddCompletedWorkout(
 ): Promise<void> {
   await assertClientOwned(db, trainerId, entry.clientId);
   await db.transaction(async (tx) => {
+    await tx
+      .delete(workouts)
+      .where(
+        and(
+          eq(workouts.trainerId, trainerId),
+          eq(workouts.clientId, entry.clientId),
+          inArray(workouts.status, ["draft", "in_progress"]),
+        ),
+      );
+
     let linkedScheduleId: string | null = entry.scheduleItemId ?? null;
     if (linkedScheduleId != null) {
       const slotRows = await tx
@@ -176,22 +216,78 @@ export async function dbAddCompletedWorkout(
 
 export async function dbAddNoteEntry(db: AppDatabase, trainerId: string, entry: JournalNoteEntry): Promise<void> {
   await assertClientOwned(db, trainerId, entry.clientId);
-  await db.insert(workouts).values({
-    id: entry.id,
-    trainerId,
-    clientId: entry.clientId,
-    scheduleItemId: entry.scheduleItemId ?? null,
-    templateId: null,
-    status: "completed_as_note",
-    title: entry.title,
-    workoutComment: entry.workoutComment,
-    startedAt: new Date(entry.createdAtMs),
-    completedAt: new Date(entry.createdAtMs),
-    durationMinutes: entry.durationMin,
-    filledSetCount: 0,
-    volumeKg: null,
-    summaryHint: null,
-    debtAcknowledged: false,
+  await db.transaction(async (tx) => {
+    await tx
+      .delete(workouts)
+      .where(
+        and(
+          eq(workouts.trainerId, trainerId),
+          eq(workouts.clientId, entry.clientId),
+          inArray(workouts.status, ["draft", "in_progress"]),
+        ),
+      );
+
+    let linkedScheduleId: string | null = entry.scheduleItemId ?? null;
+    if (linkedScheduleId != null) {
+      const slotRows = await tx
+        .select({ id: scheduleItems.id })
+        .from(scheduleItems)
+        .where(
+          and(
+            eq(scheduleItems.id, linkedScheduleId),
+            eq(scheduleItems.trainerId, trainerId),
+            eq(scheduleItems.clientId, entry.clientId),
+            inArray(scheduleItems.status, ["planned", "upcoming"]),
+          ),
+        )
+        .limit(1);
+      if (slotRows.length === 0) {
+        linkedScheduleId = null;
+      }
+    }
+
+    await tx.insert(workouts).values({
+      id: entry.id,
+      trainerId,
+      clientId: entry.clientId,
+      scheduleItemId: linkedScheduleId,
+      templateId: null,
+      status: "completed_as_note",
+      title: entry.title,
+      workoutComment: entry.workoutComment,
+      startedAt: new Date(entry.createdAtMs),
+      completedAt: new Date(entry.createdAtMs),
+      durationMinutes: entry.durationMin,
+      filledSetCount: 0,
+      volumeKg: null,
+      summaryHint: null,
+      debtAcknowledged: false,
+    });
+
+    if (linkedScheduleId != null) {
+      await tx
+        .update(scheduleItems)
+        .set({ status: "completed", updatedAt: new Date() })
+        .where(
+          and(
+            eq(scheduleItems.id, linkedScheduleId),
+            eq(scheduleItems.trainerId, trainerId),
+            inArray(scheduleItems.status, ["planned", "upcoming"]),
+          ),
+        );
+    }
+  });
+}
+
+export async function dbDeleteTrainerAccount(db: AppDatabase, trainerId: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await tx.insert(trainerAccessEvents).values({
+      trainerId,
+      eventKind: "account_deleted",
+      accessStatus: null,
+      source: "trainly_delete_account",
+    });
+    await tx.delete(trainers).where(eq(trainers.id, trainerId));
   });
 }
 
@@ -596,18 +692,65 @@ export async function dbSetSubscriptionStatus(
   });
 }
 
-export async function dbTryConsumeAiCredit(db: AppDatabase, trainerId: string): Promise<boolean> {
-  const rows = await db
-    .select({ balance: trainers.aiCreditsBalance })
-    .from(trainers)
-    .where(eq(trainers.id, trainerId))
+export async function dbUpdateJournalWorkout(
+  db: AppDatabase,
+  trainerId: string,
+  workoutId: string,
+  input: JournalWorkoutUpdateInput,
+): Promise<{ ok: true } | { ok: false; errors: string[] }> {
+  const wRows = await db
+    .select({ id: workouts.id, status: workouts.status, clientId: workouts.clientId })
+    .from(workouts)
+    .where(and(eq(workouts.id, workoutId), eq(workouts.trainerId, trainerId)))
     .limit(1);
-  const balance = rows[0]?.balance ?? 0;
-  if (balance <= 0) return false;
-  const updated = await db
-    .update(trainers)
-    .set({ aiCreditsBalance: balance - 1, updatedAt: new Date() })
-    .where(and(eq(trainers.id, trainerId), eq(trainers.aiCreditsBalance, balance)))
-    .returning({ balance: trainers.aiCreditsBalance });
-  return updated.length > 0;
+  const w = wRows[0];
+  if (w == null || w.status !== "completed") {
+    return { ok: false, errors: ["Запись не найдена."] };
+  }
+
+  const stats = recomputeJournalWorkoutStats(input.exercises);
+  await db.transaction(async (tx) => {
+    await tx
+      .update(workouts)
+      .set({
+        title: input.title.trim(),
+        workoutComment: input.workoutComment,
+        durationMinutes: Math.max(1, Math.round(input.durationMin)),
+        filledSetCount: stats.filledSetCount,
+        volumeKg: stats.volumeKg != null ? String(stats.volumeKg) : null,
+        summaryHint: stats.summaryHint,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(workouts.id, workoutId), eq(workouts.trainerId, trainerId)));
+    await dbReplaceWorkoutStructure(tx, trainerId, workoutId, input.exercises);
+  });
+  return { ok: true };
+}
+
+export async function dbUpdateJournalNote(
+  db: AppDatabase,
+  trainerId: string,
+  workoutId: string,
+  input: JournalNoteUpdateInput,
+): Promise<{ ok: true } | { ok: false; errors: string[] }> {
+  const wRows = await db
+    .select({ id: workouts.id, status: workouts.status })
+    .from(workouts)
+    .where(and(eq(workouts.id, workoutId), eq(workouts.trainerId, trainerId)))
+    .limit(1);
+  const w = wRows[0];
+  if (w == null || w.status !== "completed_as_note") {
+    return { ok: false, errors: ["Запись не найдена."] };
+  }
+
+  await db
+    .update(workouts)
+    .set({
+      title: input.title.trim(),
+      workoutComment: input.workoutComment,
+      durationMinutes: Math.max(1, Math.round(input.durationMin)),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(workouts.id, workoutId), eq(workouts.trainerId, trainerId)));
+  return { ok: true };
 }

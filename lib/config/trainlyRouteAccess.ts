@@ -47,3 +47,27 @@ export function isTrainlyProtectedAppRoute(pathname: string): boolean {
   ];
   return appAreas.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
+
+/** Маршруты, доступные без принятия обязательных юридических документов (клиентский редирект). */
+export const TRAINLY_LEGAL_CONSENT_PUBLIC_PREFIXES = [
+  "/welcome",
+  "/auth",
+  "/legal",
+  "/legal-consent",
+  "/privacy",
+  "/support",
+  "/billing/plans",
+  "/billing/checkout",
+  "/billing/success",
+  "/billing/fail",
+  "/billing/history",
+  "/billing/manage",
+  "/profile/setup",
+] as const;
+
+export function isTrainlyLegalConsentPublicPath(pathname: string): boolean {
+  for (const p of TRAINLY_LEGAL_CONSENT_PUBLIC_PREFIXES) {
+    if (pathname === p || pathname.startsWith(`${p}/`)) return true;
+  }
+  return false;
+}

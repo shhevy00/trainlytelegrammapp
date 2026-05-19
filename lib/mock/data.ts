@@ -9,8 +9,6 @@ export const MOCK_OVERVIEW_LATER_TODAY_LIMIT = 2;
 
 export interface MockTrainer {
   firstName: string;
-  /** Mock: лимит контекстных генераций ИИ (не биллинг Trainly). */
-  aiCreditsTotal: number;
 }
 
 export interface MockClient {
@@ -72,7 +70,6 @@ export interface MockJournalEntry {
 
 export const mockTrainer: MockTrainer = {
   firstName: "Alexander",
-  aiCreditsTotal: 50,
 };
 
 export const mockClients: MockClient[] = [

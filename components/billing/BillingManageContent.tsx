@@ -9,7 +9,7 @@ import { subscriptionStatusLabelRu, type MockSubscriptionStatus } from "@/lib/mo
 import { useMockApp } from "@/lib/mock/MockAppProvider";
 
 const devBtn =
-  "app-btn rounded-lg border border-[color:var(--border-soft)] bg-[var(--tg-bg)] px-2 py-1.5 text-center text-[11px] font-medium text-[var(--text-secondary)] hover:border-[color:var(--border-violet-soft)]";
+  "app-btn rounded-lg border border-[color:var(--border-soft)] bg-[var(--tg-bg)] px-2 py-1.5 text-center text-[11px] font-medium text-[var(--text-secondary)] hover:border-[color:color-mix(in_srgb,var(--border-strong),white_12%)]";
 
 export interface BillingManageProductAccess {
   planCode: string | null;
@@ -29,14 +29,7 @@ export function BillingManageContent({
   yookassaWebhookConfigured,
   productAccess,
 }: BillingManageContentProps): ReactElement {
-  const {
-    aiCreditsTotal,
-    aiCreditsUsed,
-    mockLifecycle,
-    setMockSubscriptionStatus,
-    resetMockLifecycle,
-  } = useMockApp();
-  const remaining = Math.max(0, aiCreditsTotal - aiCreditsUsed);
+  const { mockLifecycle, setMockSubscriptionStatus, resetMockLifecycle } = useMockApp();
   const sub = mockLifecycle.mockSubscriptionStatus;
 
   const setSub = (s: MockSubscriptionStatus): void => {
@@ -115,13 +108,6 @@ export function BillingManageContent({
             <span className="min-w-0 text-right font-medium text-[var(--text-primary)]">{validUntilFormatted}</span>
           </div>
         ) : null}
-        <div className="flex flex-wrap justify-between gap-2">
-          <span className="text-[var(--tg-muted)]">Подсказки (счётчик)</span>
-          <span className="font-medium tabular-nums text-[var(--text-primary)]">
-            осталось {remaining} из {aiCreditsTotal}
-            {isPostgres ? "" : " (демо)"}
-          </span>
-        </div>
         <div className="flex flex-wrap justify-between gap-2">
           <span className="text-[var(--tg-muted)]">Следующее списание</span>
           <span className="text-right font-medium text-[var(--text-primary)]">

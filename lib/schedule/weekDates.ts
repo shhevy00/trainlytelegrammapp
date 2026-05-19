@@ -40,12 +40,33 @@ export function weekDayIsoList(weekStartMondayIso: string): readonly string[] {
   return [0, 1, 2, 3, 4, 5, 6].map((i) => addDaysLocal(weekStartMondayIso, i));
 }
 
-/** Короткая подпись дня в полоске недели (пн 11). */
-export function formatWeekStripCellLabel(dateIso: string): string {
+/** Короткий день недели (пн). */
+export function formatWeekdayShort(dateIso: string): string {
   const d = parseLocalDay(dateIso);
   const idx = d.getDay() === 0 ? 6 : d.getDay() - 1;
-  const wd = RU_WD_SHORT_MON[idx] ?? "пн";
-  return `${wd} ${d.getDate()}`;
+  return RU_WD_SHORT_MON[idx] ?? "пн";
+}
+
+/** Число месяца для полоски дней. */
+export function formatDayOfMonth(dateIso: string): number {
+  return parseLocalDay(dateIso).getDate();
+}
+
+/** @deprecated Используйте formatWeekdayShort + formatDayOfMonth */
+export function formatWeekStripCellLabel(dateIso: string): string {
+  return `${formatWeekdayShort(dateIso)} ${formatDayOfMonth(dateIso)}`;
+}
+
+/** Диапазон недели для навигации: «12–18 мая». */
+export function formatWeekRangeLabel(weekStartMondayIso: string): string {
+  const start = parseLocalDay(weekStartMondayIso);
+  const end = parseLocalDay(addDaysLocal(weekStartMondayIso, 6));
+  const sm = RU_MONTH_SHORT[start.getMonth()] ?? "янв";
+  const em = RU_MONTH_SHORT[end.getMonth()] ?? "янв";
+  if (start.getMonth() === end.getMonth()) {
+    return `${start.getDate()}–${end.getDate()} ${sm}`;
+  }
+  return `${start.getDate()} ${sm} – ${end.getDate()} ${em}`;
 }
 
 /** Заголовок выбранного дня для экрана графика. */

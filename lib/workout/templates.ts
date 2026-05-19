@@ -5,13 +5,26 @@ import { createEmptySetRow } from "@/lib/workout/rows";
 /** Источник перехода в логгер (mock, до БД). */
 export type WorkoutLoggerStartSource = "empty" | "schedule" | "repeat" | "template";
 
-/** Bootstrap очереди логгера: сессия + справка + опционально шаблон/источник. */
+/** Bootstrap очереди логгера: сессия + опционально шаблон/источник. */
 export interface WorkoutLoggerBootstrap {
   session: WorkoutSessionState;
+  /** @deprecated Не используется в UI; всегда пустая строка. */
   referenceHintsByExerciseName: Record<string, string>;
+  /** @deprecated Блок «Учесть» снят с экрана; всегда пустая строка. */
   rememberBlock: string;
   startSource?: WorkoutLoggerStartSource;
   templateId?: string;
+  /** PostgreSQL: id строки draft/in_progress для autosave и завершения. */
+  persistedWorkoutId?: string;
+}
+
+/** Убирает устаревшие подсказки из bootstrap (черновики, старые сборки). */
+export function normalizeWorkoutBootstrap(bootstrap: WorkoutLoggerBootstrap): WorkoutLoggerBootstrap {
+  return {
+    ...bootstrap,
+    rememberBlock: "",
+    referenceHintsByExerciseName: {},
+  };
 }
 
 /** Шаблон тренировки (MVP: только в разрезе клиента, без «программы» и мезоциклов). */

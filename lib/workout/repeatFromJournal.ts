@@ -1,24 +1,16 @@
 import type { WorkoutExercise, WorkoutSessionState, WorkoutSetRow } from "@/lib/workout/types";
 import { newWorkoutId } from "@/lib/workout/ids";
 import { createEmptySetRow } from "@/lib/workout/rows";
-import { parseWorkoutNumber } from "@/lib/workout/calculations";
+import { formatSetReferenceLabel, SET_SUMMARY_SEP } from "@/lib/workout/formatSetDisplay";
 
 /** Строка «Было» из сохранённой тренировки (только справка, не текущие данные). */
 export function buildPreviousLineFromSets(sets: WorkoutSetRow[]): string {
   const parts: string[] = [];
   for (const row of sets) {
-    const prefix = row.isDrop ? "↳ " : "";
-    if (row.setType === "time") {
-      const d = parseWorkoutNumber(row.durationSec);
-      if (d !== null && d > 0) parts.push(`${prefix}${row.durationSec.trim()} сек`);
-      continue;
-    }
-    const w = row.weight.trim();
-    const r = row.reps.trim();
-    if (w && r) parts.push(`${prefix}${w}×${r}`);
-    else if (r) parts.push(`${prefix}${r} reps`);
+    const label = formatSetReferenceLabel(row);
+    if (label) parts.push(label);
   }
-  return parts.join(" · ");
+  return parts.join(SET_SUMMARY_SEP);
 }
 
 export function buildReferenceHintsByExerciseName(exercises: WorkoutExercise[]): Record<string, string> {

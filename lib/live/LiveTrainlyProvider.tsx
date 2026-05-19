@@ -7,13 +7,13 @@ import {
   validateTemplateInput,
   type CreateWorkoutTemplateInput,
   type UpdateWorkoutTemplateInput,
+  normalizeWorkoutBootstrap,
   type WorkoutLoggerBootstrap,
   type WorkoutTemplate,
 } from "@/lib/workout/templates";
 import type { ExerciseHistoryDemo } from "@/lib/mock/workoutDemo";
 import { buildExerciseHistoryFromJournal } from "@/lib/journal/exerciseHistoryFromJournal";
-import { buildRememberBlock } from "@/lib/mock/rememberBlock";
-import { buildRepeatSessionFromSavedWorkout, buildReferenceHintsByExerciseName } from "@/lib/workout/repeatFromJournal";
+import { buildRepeatSessionFromSavedWorkout } from "@/lib/workout/repeatFromJournal";
 import type { MockClient, MockScheduleItem } from "@/lib/mock/data";
 import type { CoachPaymentRecord, CoachQuickNote, CoachQuickNoteType } from "@/lib/mock/coachLedger";
 import type { CompleteProfileSetupInput, MockSubscriptionStatus } from "@/lib/mock/lifecycleTypes";
@@ -36,10 +36,16 @@ import {
   trainlyMarkScheduleMissedAction,
   trainlyRecordCoachPaymentAction,
   trainlySaveWorkoutAsTemplateAction,
+  trainlyDiscardWorkoutDraftAction,
+  trainlyLoadWorkoutDraftAction,
+  trainlySaveWorkoutDraftAction,
   trainlySetSubscriptionStatusAction,
-  trainlyTryConsumeAiCreditAction,
   trainlyUpdateWorkoutTemplateAction,
+  trainlyUpdateJournalNoteAction,
+  trainlyUpdateJournalWorkoutAction,
 } from "@/app/actions/trainly";
+import { TrainlyProductAccessDeniedError } from "@/lib/billing/accessGate";
+import type { WorkoutSessionState } from "@/lib/workout/types";
 import { LegalConsentRedirect } from "@/components/shell/LegalConsentRedirect";
 import { MockAppContext, type MockAppContextValue, type OverviewDraftPreview } from "@/lib/mock/MockAppProvider";
 
@@ -81,7 +87,6 @@ export function LiveTrainlyProvider({
 
   const overviewDraftBootstrapRef = useRef<WorkoutLoggerBootstrap | null>(null);
   const [overviewDraftPreview, setOverviewDraftPreview] = useState<OverviewDraftPreview | null>(null);
-  const [aiCreditsUsed, setAiCreditsUsed] = useState(0);
 
   const resolveClient = useCallback(
     (clientId: string): MockClient | undefined => snap.clients.find((c) => c.id === clientId),
@@ -101,20 +106,90 @@ export function LiveTrainlyProvider({
       remainingSessions?: number;
       limitation?: string;
     }): Promise<string> => {
-      const id = await trainlyAddClientAction(payload);
-      setSnap(await refresh());
-      return id;
+      try {
+        const id = await trainlyAddClientAction(payload);
+        setSnap(await refresh());
+        return id;
+      } catch (e) {
+        if (e instanceof TrainlyProductAccessDeniedError) {
+          throw new Error(e.message);
+        }
+        throw e;
+      }
     },
     [],
   );
 
   const addCompletedWorkout = useCallback(async (entry: JournalCompletedWorkout): Promise<void> => {
-    await trainlyAddCompletedWorkoutAction(entry);
-    setSnap(await refresh());
+    try {
+      await trainlyAddCompletedWorkoutAction(entry);
+      setSnap(await refresh());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Не удалось сохранить тренировку.";
+      throw new Error(msg);
+    }
   }, []);
 
   const addNoteEntry = useCallback(async (entry: JournalNoteEntry): Promise<void> => {
-    await trainlyAddNoteEntryAction(entry);
+    try {
+      await trainlyAddNoteEntryAction(entry);
+      setSnap(await refresh());
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Не удалось сохранить заметку.";
+      throw new Error(msg);
+    }
+  }, []);
+
+  const updateJournalWorkout = useCallback(
+    async (
+      id: string,
+      input: import("@/lib/journal/validateJournalUpdate").JournalWorkoutUpdateInput,
+    ): Promise<{ ok: true } | { ok: false; errors: string[] }> => {
+      try {
+        const res = await trainlyUpdateJournalWorkoutAction(id, input);
+        if (res.ok) setSnap(await refresh());
+        return res;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Не удалось обновить запись.";
+        return { ok: false, errors: [msg] };
+      }
+    },
+    [],
+  );
+
+  const updateJournalNote = useCallback(
+    async (
+      id: string,
+      input: import("@/lib/journal/validateJournalUpdate").JournalNoteUpdateInput,
+    ): Promise<{ ok: true } | { ok: false; errors: string[] }> => {
+      try {
+        const res = await trainlyUpdateJournalNoteAction(id, input);
+        if (res.ok) setSnap(await refresh());
+        return res;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "Не удалось обновить запись.";
+        return { ok: false, errors: [msg] };
+      }
+    },
+    [],
+  );
+
+  const saveWorkoutDraft = useCallback(
+    async (payload: {
+      workoutId: string;
+      session: WorkoutSessionState;
+      status: "draft" | "in_progress";
+      templateId?: string | null;
+    }): Promise<{ ok: true } | { ok: false; error: string; conflictWorkoutId?: string }> => {
+      return trainlySaveWorkoutDraftAction(payload);
+    },
+    [],
+  );
+
+  const loadWorkoutDraft = useCallback(async (clientId: string) => trainlyLoadWorkoutDraftAction(clientId), []);
+
+  const discardWorkoutDraft = useCallback(async (workoutId: string): Promise<void> => {
+    await trainlyDiscardWorkoutDraftAction(workoutId);
     setSnap(await refresh());
   }, []);
 
@@ -317,7 +392,7 @@ export function LiveTrainlyProvider({
 
   const consumeWorkoutBootstrap = useCallback((): WorkoutLoggerBootstrap | null => {
     if (bootstrapRef.current != null) {
-      const b = bootstrapRef.current;
+      const b = normalizeWorkoutBootstrap(bootstrapRef.current);
       bootstrapRef.current = null;
       bootstrapReplayUntilMicrotaskRef.current = b;
       scheduleBootstrapReplayClear();
@@ -325,7 +400,7 @@ export function LiveTrainlyProvider({
     }
     const replay = bootstrapReplayUntilMicrotaskRef.current;
     if (replay != null) {
-      return replay;
+      return normalizeWorkoutBootstrap(replay);
     }
     return null;
   }, [scheduleBootstrapReplayClear]);
@@ -333,13 +408,13 @@ export function LiveTrainlyProvider({
   const queueWorkoutBootstrap = useCallback(
     (bootstrap: WorkoutLoggerBootstrap): void => {
       clearBootstrapReplay();
-      bootstrapRef.current = bootstrap;
+      bootstrapRef.current = normalizeWorkoutBootstrap(bootstrap);
     },
     [clearBootstrapReplay],
   );
 
   const syncOverviewWorkoutDraft = useCallback((bootstrap: WorkoutLoggerBootstrap | null): void => {
-    overviewDraftBootstrapRef.current = bootstrap;
+    overviewDraftBootstrapRef.current = bootstrap ? normalizeWorkoutBootstrap(bootstrap) : null;
     if (!bootstrap) {
       setOverviewDraftPreview((prev) => (prev == null ? prev : null));
       return;
@@ -376,7 +451,7 @@ export function LiveTrainlyProvider({
     overviewDraftBootstrapRef.current = null;
     setOverviewDraftPreview(null);
     clearBootstrapReplay();
-    bootstrapRef.current = b;
+    bootstrapRef.current = normalizeWorkoutBootstrap(b);
     return true;
   }, [clearBootstrapReplay]);
 
@@ -386,23 +461,16 @@ export function LiveTrainlyProvider({
       if (!entry || entry.kind !== "workout") return false;
       if (entry.exercises.length === 0) return false;
       const session = buildRepeatSessionFromSavedWorkout(entry);
-      const referenceHintsByExerciseName = buildReferenceHintsByExerciseName(entry.exercises);
-      const client = resolveClient(entry.clientId);
-      const notes = snap.coachQuickNotes
-        .filter((n) => n.clientId === entry.clientId)
-        .sort((a, b) => b.createdAtMs - a.createdAtMs);
       clearBootstrapReplay();
       bootstrapRef.current = {
         session,
-        referenceHintsByExerciseName,
-        rememberBlock: client
-          ? buildRememberBlock(client, {}, notes)
-          : "Не удалось сопоставить клиента для повтора из журнала.",
+        referenceHintsByExerciseName: {},
+        rememberBlock: "",
         startSource: "repeat",
       };
       return true;
     },
-    [snap.journalEntries, snap.coachQuickNotes, resolveClient, clearBootstrapReplay],
+    [snap.journalEntries, clearBootstrapReplay],
   );
 
   const createWorkoutBootstrapFromTemplate = useCallback(
@@ -429,36 +497,17 @@ export function LiveTrainlyProvider({
         scheduleItemId: params.scheduleItemId,
         ...(params.debtAcknowledged ? { debtAcknowledged: true } : {}),
       });
-      const referenceHintsByExerciseName: Record<string, string> = {};
-      for (const ex of session.exercises) {
-        const hist = buildExerciseHistoryFromJournal(snap.journalEntries, client.id, ex.name, snap.todayIso);
-        if (hist && hist.previousSummary.trim().length > 0) {
-          referenceHintsByExerciseName[ex.name] = hist.previousSummary;
-        }
-      }
-      const notes = snap.coachQuickNotes
-        .filter((n) => n.clientId === client.id)
-        .sort((a, b) => b.createdAtMs - a.createdAtMs);
       queueWorkoutBootstrap({
         session,
-        referenceHintsByExerciseName,
-        rememberBlock: buildRememberBlock(client, { debtAcknowledged: params.debtAcknowledged }, notes),
+        referenceHintsByExerciseName: {},
+        rememberBlock: "",
         startSource: "template",
         templateId: template.id,
       });
       return { ok: true };
     },
-    [resolveClient, snap.workoutTemplates, snap.journalEntries, snap.coachQuickNotes, snap.todayIso, queueWorkoutBootstrap],
+    [resolveClient, snap.workoutTemplates, queueWorkoutBootstrap],
   );
-
-  const tryConsumeAiCredit = useCallback(async (): Promise<boolean> => {
-    const ok = await trainlyTryConsumeAiCreditAction();
-    if (ok) {
-      setAiCreditsUsed((u) => u + 1);
-      setSnap(await refresh());
-    }
-    return ok;
-  }, []);
 
   const enterDemoAuth = useCallback(async (): Promise<void> => {
     const res = await enterDevTrainerSessionAction();
@@ -482,13 +531,15 @@ export function LiveTrainlyProvider({
   }, []);
 
   const setMockSubscriptionStatus = useCallback(async (status: MockSubscriptionStatus): Promise<void> => {
-    await trainlySetSubscriptionStatusAction(status);
+    const res = await trainlySetSubscriptionStatusAction(status);
+    if (!res.ok) {
+      throw new Error(res.error);
+    }
     setSnap(await refresh());
   }, []);
 
   const resetMockLifecycle = useCallback(async (): Promise<void> => {
     await trainlyLogoutAction();
-    setAiCreditsUsed(0);
     window.location.href = "/welcome";
   }, []);
 
@@ -502,6 +553,8 @@ export function LiveTrainlyProvider({
       getExerciseHistoryForClient,
       addCompletedWorkout,
       addNoteEntry,
+      updateJournalWorkout,
+      updateJournalNote,
       getJournalEntry,
       getScheduleItemById,
       getScheduleItemsByDate,
@@ -524,9 +577,6 @@ export function LiveTrainlyProvider({
       addCoachQuickNote,
       getCoachQuickNotesForClient,
       getCoachPaymentRecordsForClient,
-      aiCreditsTotal: snap.aiCreditsTotal,
-      aiCreditsUsed,
-      tryConsumeAiCredit,
       getTemplatesForClient,
       getTemplateById,
       createWorkoutTemplate,
@@ -541,6 +591,9 @@ export function LiveTrainlyProvider({
       markOnboardingSeen,
       setMockSubscriptionStatus,
       resetMockLifecycle,
+      saveWorkoutDraft,
+      loadWorkoutDraft,
+      discardWorkoutDraft,
     }),
     [
       snap,
@@ -548,6 +601,8 @@ export function LiveTrainlyProvider({
       getExerciseHistoryForClient,
       addCompletedWorkout,
       addNoteEntry,
+      updateJournalWorkout,
+      updateJournalNote,
       getJournalEntry,
       getScheduleItemById,
       getScheduleItemsByDate,
@@ -568,8 +623,6 @@ export function LiveTrainlyProvider({
       addCoachQuickNote,
       getCoachQuickNotesForClient,
       getCoachPaymentRecordsForClient,
-      aiCreditsUsed,
-      tryConsumeAiCredit,
       getTemplatesForClient,
       getTemplateById,
       createWorkoutTemplate,
@@ -583,6 +636,9 @@ export function LiveTrainlyProvider({
       markOnboardingSeen,
       setMockSubscriptionStatus,
       resetMockLifecycle,
+      saveWorkoutDraft,
+      loadWorkoutDraft,
+      discardWorkoutDraft,
     ],
   );
 

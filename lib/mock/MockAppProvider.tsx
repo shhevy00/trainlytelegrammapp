@@ -11,6 +11,13 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
+import { recomputeJournalWorkoutStats } from "@/lib/journal/journalEntryStats";
+import {
+  validateJournalNoteUpdate,
+  validateJournalWorkoutUpdate,
+  type JournalNoteUpdateInput,
+  type JournalWorkoutUpdateInput,
+} from "@/lib/journal/validateJournalUpdate";
 import type { JournalCompletedWorkout, JournalEntry, JournalNoteEntry } from "@/lib/types";
 import {
   buildWorkoutSessionFromTemplate,
@@ -19,6 +26,7 @@ import {
   validateUpdateWorkoutTemplateInput,
   type CreateWorkoutTemplateInput,
   type UpdateWorkoutTemplateInput,
+  normalizeWorkoutBootstrap,
   type WorkoutLoggerBootstrap,
   type WorkoutTemplate,
   type WorkoutTemplateExercise,
@@ -37,9 +45,8 @@ import { formatOverviewHumanDate, isoDayLocal } from "@/lib/overview/dailyOperat
 import type { CoachPaymentRecord, CoachQuickNote, CoachQuickNoteType } from "@/lib/mock/coachLedger";
 import { buildSeedCoachPaymentRecordsToday } from "@/lib/mock/coachLedgerSeed";
 import { buildInitialJournalEntries } from "@/lib/mock/journalSeed";
-import { buildRememberBlock } from "@/lib/mock/rememberBlock";
 import { spendOneClientSessionBalance } from "@/lib/coach/paidSessions";
-import { buildReferenceHintsByExerciseName, buildRepeatSessionFromSavedWorkout } from "@/lib/workout/repeatFromJournal";
+import { buildRepeatSessionFromSavedWorkout } from "@/lib/workout/repeatFromJournal";
 import { newWorkoutId } from "@/lib/workout/ids";
 import {
   createFreshMockLifecycle,
@@ -200,6 +207,14 @@ interface MockAppContextValue {
   getExerciseHistoryForClient: (clientId: string, exerciseName: string) => ExerciseHistoryDemo | null;
   addCompletedWorkout: (entry: JournalCompletedWorkout) => MaybeAsync<void>;
   addNoteEntry: (entry: JournalNoteEntry) => MaybeAsync<void>;
+  updateJournalWorkout: (
+    id: string,
+    input: JournalWorkoutUpdateInput,
+  ) => MaybeAsync<{ ok: true } | { ok: false; errors: string[] }>;
+  updateJournalNote: (
+    id: string,
+    input: JournalNoteUpdateInput,
+  ) => MaybeAsync<{ ok: true } | { ok: false; errors: string[] }>;
   getJournalEntry: (id: string) => JournalEntry | undefined;
   getScheduleItemById: (id: string) => MockScheduleItem | undefined;
   getScheduleItemsByDate: (dateIso: string) => MockScheduleItem[];
@@ -246,10 +261,6 @@ interface MockAppContextValue {
   }) => MaybeAsync<void>;
   getCoachQuickNotesForClient: (clientId: string) => CoachQuickNote[];
   getCoachPaymentRecordsForClient: (clientId: string) => CoachPaymentRecord[];
-  /** Mock: контекстные генерации ИИ (1 операция = 1 AI-подготовка в демо). */
-  aiCreditsTotal: number;
-  aiCreditsUsed: number;
-  tryConsumeAiCredit: () => MaybeAsync<boolean>;
   /** Шаблоны тренировки (MVP: только по клиенту, mock в памяти). */
   getTemplatesForClient: (clientId: string) => WorkoutTemplate[];
   getTemplateById: (templateId: string) => WorkoutTemplate | undefined;
@@ -282,6 +293,23 @@ interface MockAppContextValue {
   markOnboardingSeen: () => MaybeAsync<void>;
   setMockSubscriptionStatus: (status: MockSubscriptionStatus) => MaybeAsync<void>;
   resetMockLifecycle: () => MaybeAsync<void>;
+  /** Live/PostgreSQL: автосохранение черновика тренировки. В mock — no-op. */
+  saveWorkoutDraft: (payload: {
+    workoutId: string;
+    session: import("@/lib/workout/types").WorkoutSessionState;
+    status: "draft" | "in_progress";
+    templateId?: string | null;
+  }) => MaybeAsync<{ ok: true } | { ok: false; error: string; conflictWorkoutId?: string }>;
+  loadWorkoutDraft: (
+    clientId: string,
+  ) => MaybeAsync<{
+    workoutId: string;
+    session: import("@/lib/workout/types").WorkoutSessionState;
+    status: "draft" | "in_progress";
+    templateId: string | null;
+    clientName: string;
+  } | null>;
+  discardWorkoutDraft: (workoutId: string) => MaybeAsync<void>;
 }
 
 export const MockAppContext = createContext<MockAppContextValue | null>(null);
@@ -327,7 +355,6 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
     buildSeedWorkoutTemplates(),
   );
 
-  const [aiCreditsUsed, setAiCreditsUsed] = useState(0);
 
   const [mockLifecycle, setMockLifecycle] = useState<MockLifecyclePersisted>(() => DEFAULT_MOCK_LIFECYCLE);
 
@@ -394,16 +421,6 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
     const next = createFreshMockLifecycle();
     persistLifecycleToStorage(next);
     setMockLifecycle(next);
-  }, []);
-
-  const tryConsumeAiCredit = useCallback((): boolean => {
-    let consumed = false;
-    setAiCreditsUsed((prev) => {
-      if (prev >= mockTrainer.aiCreditsTotal) return prev;
-      consumed = true;
-      return prev + 1;
-    });
-    return consumed;
   }, []);
 
   const addClient = useCallback(
@@ -478,6 +495,58 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
   const addNoteEntry = useCallback((entry: JournalNoteEntry) => {
     setJournalEntries((prev) => [entry, ...prev]);
   }, []);
+
+  const updateJournalWorkout = useCallback(
+    (
+      id: string,
+      input: JournalWorkoutUpdateInput,
+    ): { ok: true } | { ok: false; errors: string[] } => {
+      const errors = validateJournalWorkoutUpdate(input);
+      if (errors.length > 0) return { ok: false, errors };
+      let found = false;
+      const stats = recomputeJournalWorkoutStats(input.exercises);
+      setJournalEntries((prev) =>
+        prev.map((e) => {
+          if (e.id !== id || e.kind !== "workout") return e;
+          found = true;
+          return {
+            ...e,
+            title: input.title.trim(),
+            durationMin: Math.max(1, Math.round(input.durationMin)),
+            workoutComment: input.workoutComment,
+            exercises: structuredClone(input.exercises),
+            ...stats,
+          };
+        }),
+      );
+      if (!found) return { ok: false, errors: ["Запись не найдена."] };
+      return { ok: true };
+    },
+    [],
+  );
+
+  const updateJournalNote = useCallback(
+    (id: string, input: JournalNoteUpdateInput): { ok: true } | { ok: false; errors: string[] } => {
+      const errors = validateJournalNoteUpdate(input);
+      if (errors.length > 0) return { ok: false, errors };
+      let found = false;
+      setJournalEntries((prev) =>
+        prev.map((e) => {
+          if (e.id !== id || e.kind !== "note") return e;
+          found = true;
+          return {
+            ...e,
+            title: input.title.trim(),
+            durationMin: Math.max(1, Math.round(input.durationMin)),
+            workoutComment: input.workoutComment,
+          };
+        }),
+      );
+      if (!found) return { ok: false, errors: ["Запись не найдена."] };
+      return { ok: true };
+    },
+    [],
+  );
 
   const getJournalEntry = useCallback(
     (id: string): JournalEntry | undefined => journalEntries.find((e) => e.id === id),
@@ -808,7 +877,7 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
   );
 
   const syncOverviewWorkoutDraft = useCallback((bootstrap: WorkoutLoggerBootstrap | null): void => {
-    overviewDraftBootstrapRef.current = bootstrap;
+    overviewDraftBootstrapRef.current = bootstrap ? normalizeWorkoutBootstrap(bootstrap) : null;
     if (!bootstrap) {
       setOverviewDraftPreview((prev) => (prev == null ? prev : null));
       return;
@@ -845,14 +914,14 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
     overviewDraftBootstrapRef.current = null;
     setOverviewDraftPreview(null);
     clearBootstrapReplay();
-    bootstrapRef.current = b;
+    bootstrapRef.current = normalizeWorkoutBootstrap(b);
     return true;
   }, [clearBootstrapReplay]);
 
   const queueWorkoutBootstrap = useCallback(
     (bootstrap: WorkoutLoggerBootstrap): void => {
       clearBootstrapReplay();
-      bootstrapRef.current = bootstrap;
+      bootstrapRef.current = normalizeWorkoutBootstrap(bootstrap);
     },
     [clearBootstrapReplay],
   );
@@ -881,26 +950,16 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
         scheduleItemId: params.scheduleItemId,
         ...(params.debtAcknowledged ? { debtAcknowledged: true } : {}),
       });
-      const referenceHintsByExerciseName: Record<string, string> = {};
-      for (const ex of session.exercises) {
-        const hist = getExerciseHistoryForClient(client.id, ex.name);
-        if (hist && hist.previousSummary.trim().length > 0) {
-          referenceHintsByExerciseName[ex.name] = hist.previousSummary;
-        }
-      }
-      const notes = coachQuickNotes
-        .filter((n) => n.clientId === client.id)
-        .sort((a, b) => b.createdAtMs - a.createdAtMs);
       queueWorkoutBootstrap({
         session,
-        referenceHintsByExerciseName,
-        rememberBlock: buildRememberBlock(client, { debtAcknowledged: params.debtAcknowledged }, notes),
+        referenceHintsByExerciseName: {},
+        rememberBlock: "",
         startSource: "template",
         templateId: template.id,
       });
       return { ok: true };
     },
-    [resolveClient, workoutTemplates, getExerciseHistoryForClient, coachQuickNotes, queueWorkoutBootstrap],
+    [resolveClient, workoutTemplates, queueWorkoutBootstrap],
   );
 
   const saveWorkoutAsTemplate = useCallback(
@@ -956,28 +1015,58 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       if (!entry || entry.kind !== "workout") return false;
       if (entry.exercises.length === 0) return false;
       const session = buildRepeatSessionFromSavedWorkout(entry);
-      const referenceHintsByExerciseName = buildReferenceHintsByExerciseName(entry.exercises);
-      const client = resolveClient(entry.clientId);
-      const notes = coachQuickNotes
-        .filter((n) => n.clientId === entry.clientId)
-        .sort((a, b) => b.createdAtMs - a.createdAtMs);
       clearBootstrapReplay();
       bootstrapRef.current = {
         session,
-        referenceHintsByExerciseName,
-        rememberBlock: client
-          ? buildRememberBlock(client, {}, notes)
-          : "Не удалось сопоставить клиента для повтора из журнала.",
+        referenceHintsByExerciseName: {},
+        rememberBlock: "",
         startSource: "repeat",
       };
       return true;
     },
-    [journalEntries, resolveClient, coachQuickNotes, clearBootstrapReplay],
+    [journalEntries, clearBootstrapReplay],
   );
+
+  const saveWorkoutDraft = useCallback(
+    async (payload: {
+      workoutId: string;
+      session: import("@/lib/workout/types").WorkoutSessionState;
+      status: "draft" | "in_progress";
+      templateId?: string | null;
+    }): Promise<{ ok: true } | { ok: false; error: string; conflictWorkoutId?: string }> => {
+      const { saveMockWorkoutDraft } = await import("@/lib/mock/mockWorkoutDraftStore");
+      saveMockWorkoutDraft({
+        workoutId: payload.workoutId,
+        session: structuredClone(payload.session),
+        status: payload.status,
+        templateId: payload.templateId ?? null,
+      });
+      return { ok: true };
+    },
+    [],
+  );
+  const loadWorkoutDraft = useCallback(async (clientId: string) => {
+    const { loadMockWorkoutDraftByClientId } = await import("@/lib/mock/mockWorkoutDraftStore");
+    const draft = loadMockWorkoutDraftByClientId(clientId);
+    if (draft == null) return null;
+    const client = clients.find((c) => c.id === clientId);
+    const clientName = client?.name ?? draft.session.clientName;
+    return {
+      workoutId: draft.workoutId,
+      session: { ...draft.session, clientName },
+      status: draft.status,
+      templateId: draft.templateId,
+      clientName,
+    };
+  }, [clients]);
+  const discardWorkoutDraft = useCallback(async (workoutId: string): Promise<void> => {
+    const { deleteMockWorkoutDraft } = await import("@/lib/mock/mockWorkoutDraftStore");
+    deleteMockWorkoutDraft(workoutId);
+  }, []);
 
   const consumeWorkoutBootstrap = useCallback((): WorkoutLoggerBootstrap | null => {
     if (bootstrapRef.current != null) {
-      const b = bootstrapRef.current;
+      const b = normalizeWorkoutBootstrap(bootstrapRef.current);
       bootstrapRef.current = null;
       bootstrapReplayUntilMicrotaskRef.current = b;
       scheduleBootstrapReplayClear();
@@ -985,7 +1074,7 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
     }
     const replay = bootstrapReplayUntilMicrotaskRef.current;
     if (replay != null) {
-      return replay;
+      return normalizeWorkoutBootstrap(replay);
     }
     return null;
   }, [scheduleBootstrapReplayClear]);
@@ -1000,6 +1089,8 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       getExerciseHistoryForClient,
       addCompletedWorkout,
       addNoteEntry,
+      updateJournalWorkout,
+      updateJournalNote,
       getJournalEntry,
       getScheduleItemById,
       getScheduleItemsByDate,
@@ -1022,9 +1113,6 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       addCoachQuickNote,
       getCoachQuickNotesForClient,
       getCoachPaymentRecordsForClient,
-      aiCreditsTotal: mockTrainer.aiCreditsTotal,
-      aiCreditsUsed,
-      tryConsumeAiCredit,
       getTemplatesForClient,
       getTemplateById,
       createWorkoutTemplate,
@@ -1039,6 +1127,9 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       markOnboardingSeen,
       setMockSubscriptionStatus,
       resetMockLifecycle,
+      saveWorkoutDraft,
+      loadWorkoutDraft,
+      discardWorkoutDraft,
     }),
     [
       clients,
@@ -1048,6 +1139,8 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       getExerciseHistoryForClient,
       addCompletedWorkout,
       addNoteEntry,
+      updateJournalWorkout,
+      updateJournalNote,
       getJournalEntry,
       getScheduleItemById,
       getScheduleItemsByDate,
@@ -1070,8 +1163,6 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       addCoachQuickNote,
       getCoachQuickNotesForClient,
       getCoachPaymentRecordsForClient,
-      aiCreditsUsed,
-      tryConsumeAiCredit,
       getTemplatesForClient,
       getTemplateById,
       createWorkoutTemplate,
@@ -1086,16 +1177,25 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       markOnboardingSeen,
       setMockSubscriptionStatus,
       resetMockLifecycle,
+      saveWorkoutDraft,
+      loadWorkoutDraft,
+      discardWorkoutDraft,
     ],
   );
 
   return <MockAppContext.Provider value={value}>{children}</MockAppContext.Provider>;
 }
 
-export function useMockApp(): MockAppContextValue {
+/** Предпочтительный хук данных приложения (mock и live). */
+export function useTrainlyApp(): MockAppContextValue {
   const ctx = useContext(MockAppContext);
   if (!ctx) {
-    throw new Error("useMockApp должен вызываться внутри MockAppProvider");
+    throw new Error("useTrainlyApp должен вызываться внутри MockAppProvider или LiveTrainlyProvider");
   }
   return ctx;
+}
+
+/** @deprecated Используйте `useTrainlyApp`. */
+export function useMockApp(): MockAppContextValue {
+  return useTrainlyApp();
 }

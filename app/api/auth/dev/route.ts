@@ -4,6 +4,7 @@ import { signSessionToken, sessionCookieName } from "@/lib/auth/jwt";
 import { getDb } from "@/lib/db/server";
 import { logServerError } from "@/lib/server/logServerError";
 import { ensureTrainerForTelegramUser } from "@/lib/server/ensureTrainer";
+import { formatPgErrorForUi } from "@/lib/server/pgErrorMessage";
 import { dbAcceptLegal } from "@/lib/server/trainlyMutations";
 import { trainers } from "@/db/schema";
 
@@ -60,6 +61,6 @@ export async function POST(req: Request): Promise<Response> {
     return res;
   } catch (e) {
     logServerError("api/auth/dev", e);
-    return NextResponse.json({ error: "dev_auth_failed" }, { status: 500 });
+    return NextResponse.json({ error: "dev_auth_failed", message: formatPgErrorForUi(e) }, { status: 503 });
   }
 }

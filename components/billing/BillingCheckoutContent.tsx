@@ -5,7 +5,14 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState, type FormEvent, type ReactElement } from "react";
 import { PageHeader } from "@/components/prod-shell/PageHeader";
 import { ShellMain } from "@/components/prod-shell/ShellMain";
-import { PAID_PLAN_CHECKOUT, parseCheckoutPlanParam } from "@/lib/billing/planDefinitions";
+import {
+  formatPlanRub,
+  getPaidPlanCheckoutQuote,
+  getPlanPriceUi,
+  parseBillingPeriodParam,
+  parseCheckoutPlanParam,
+  parsePaidPlanSlugStrict,
+} from "@/lib/billing/planDefinitions";
 import { createTrainlyYookassaCheckoutAction } from "@/app/actions/billing";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
 
@@ -19,9 +26,10 @@ export function BillingCheckoutContent({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { setMockSubscriptionStatus } = useMockApp();
-  /** Примитив в deps: объект searchParams при смене ?plan= на том же маршруте может не триггерить useMemo. */
   const planQuery = searchParams.get("plan");
+  const periodQuery = searchParams.get("period");
   const checkoutKind = useMemo(() => parseCheckoutPlanParam(planQuery), [planQuery]);
+  const billingPeriod = useMemo(() => parseBillingPeriodParam(periodQuery), [periodQuery]);
 
   const [offer, setOffer] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
@@ -33,17 +41,21 @@ export function BillingCheckoutContent({
     }
   }, [checkoutKind, router]);
 
-  const planSlug = checkoutKind === "start" || checkoutKind === "pro" || checkoutKind === "max" ? checkoutKind : null;
-  const plan = planSlug ? PAID_PLAN_CHECKOUT[planSlug] : null;
+  const planSlug =
+    checkoutKind === "start" || checkoutKind === "pro" || checkoutKind === "expert"
+      ? checkoutKind
+      : parsePaidPlanSlugStrict(planQuery);
+  const quote = planSlug ? getPaidPlanCheckoutQuote(planSlug, billingPeriod) : null;
+  const priceUi = planSlug ? getPlanPriceUi(planSlug, billingPeriod) : null;
 
   const onPay = async (e: FormEvent): Promise<void> => {
     e.preventDefault();
     setPayError(null);
-    if (!planSlug || !offer) return;
+    if (!planSlug || !quote || !offer) return;
     if (checkoutMode === "yookassa") {
       setPayPending(true);
       try {
-        const res = await createTrainlyYookassaCheckoutAction(planSlug);
+        const res = await createTrainlyYookassaCheckoutAction(planSlug, quote.billingPeriod);
         if (!res.ok) {
           setPayError(res.error);
           return;
@@ -54,7 +66,9 @@ export function BillingCheckoutContent({
       }
       return;
     }
-    router.push(`/billing/success?plan=${planSlug}`);
+    router.push(
+      `/billing/success?plan=${encodeURIComponent(planSlug)}&period=${encodeURIComponent(quote.billingPeriod)}`,
+    );
   };
 
   const onTrialNoPay = async (): Promise<void> => {
@@ -62,14 +76,41 @@ export function BillingCheckoutContent({
     router.push("/overview");
   };
 
-  if (checkoutKind === "trial") {
+  if (checkoutKind === "free") {
+    if (checkoutMode === "yookassa") {
+      return (
+        <ShellMain>
+          <PageHeader title="Free" backHref="/billing/plans" backLabel="Назад к тарифам" />
+          <div className="premium-surface min-w-0 space-y-3 p-4 text-sm leading-relaxed text-[var(--text-secondary)]">
+            <p className="text-[var(--text-primary)]">Тариф Free доступен без оплаты.</p>
+            <p className="text-[var(--tg-muted)]">
+              Для расширения базы выберите Start, Pro или Expert на экране тарифов.
+            </p>
+          </div>
+          <Link
+            href="/overview"
+            prefetch={false}
+            className="app-btn block w-full rounded-2xl bg-[var(--tg-accent)] px-4 py-3.5 text-center text-[15px] font-semibold text-white shadow-app-primary"
+          >
+            Перейти в обзор
+          </Link>
+          <Link
+            href="/billing/plans"
+            prefetch={false}
+            className="app-btn block w-full rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] py-3 text-center text-sm font-semibold text-[var(--text-primary)]"
+          >
+            Назад к тарифам
+          </Link>
+        </ShellMain>
+      );
+    }
     return (
       <ShellMain>
-        <PageHeader title="Пробный период" backHref="/billing/plans" backLabel="Назад к тарифам" />
+        <PageHeader title="Free" backHref="/billing/plans" backLabel="Назад к тарифам" />
         <div className="premium-surface min-w-0 space-y-3 p-4 text-sm leading-relaxed text-[var(--text-secondary)]">
-          <p className="text-[var(--text-primary)]">Пробный период запускается без оплаты.</p>
+          <p className="text-[var(--text-primary)]">Тариф Free запускается без оплаты.</p>
           <p className="text-[var(--tg-muted)]">
-            Оформление доступа через платёжную систему появится позже. Сейчас можно включить пробный режим в демо.
+            До 2 активных клиентов. Для большей базы выберите платный тариф на экране тарифов.
           </p>
         </div>
         <button
@@ -90,7 +131,7 @@ export function BillingCheckoutContent({
     );
   }
 
-  if (checkoutKind === "invalid" || !plan || !planSlug) {
+  if (checkoutKind === "invalid" || !quote || !planSlug || !priceUi) {
     return (
       <ShellMain>
         <PageHeader title="Тариф" backHref="/billing/plans" backLabel="Назад к тарифам" />
@@ -99,22 +140,29 @@ export function BillingCheckoutContent({
     );
   }
 
+  const periodLabel = quote.billingPeriod === "year" ? "год (оплата раз в год)" : "месяц";
+
   return (
     <ShellMain>
       <PageHeader title="Подтверждение оплаты" backHref="/billing/plans" backLabel="Назад к тарифам" />
 
       <div className="premium-surface min-w-0 p-4">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--tg-muted)]">Тариф</p>
-        <p className="mt-1 text-lg font-bold text-[var(--text-primary)]">{plan.name}</p>
-        <p className="mt-2 text-sm text-[var(--text-secondary)]">Период: месяц</p>
-        <p className="mt-1 text-2xl font-bold tabular-nums text-[var(--text-primary)]">
-          {plan.amountRub.toLocaleString("ru-RU")} ₽
+        <p className="mt-1 text-lg font-bold text-[var(--text-primary)]">{quote.name}</p>
+        <p className="mt-2 text-sm text-[var(--text-secondary)]">Период: {periodLabel}</p>
+        <p className="mt-3 billing-plan-price">
+          <span className="billing-plan-price-amount">{priceUi.amount}</span>
+          <span className="billing-plan-price-period">/ {priceUi.period}</span>
         </p>
-        <p className="mt-3 text-sm leading-relaxed text-[var(--text-secondary)]">{plan.summaryLine}</p>
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)] marker:text-[var(--tg-muted)]">
-          <li>Безлимит тренировок в рамках тарифа (после запуска сервера)</li>
-          <li>Дальнейшие функции — по дорожной карте продукта (без отдельной оплаты за демо-подсказки в v1)</li>
-        </ul>
+        {priceUi.chargeLine ? (
+          <p className="mt-2 text-sm font-semibold text-[var(--brand-solid)]">{priceUi.chargeLine}</p>
+        ) : (
+          <p className="mt-2 text-2xl font-bold tabular-nums text-[var(--text-primary)]">
+            {formatPlanRub(quote.amountRub)}
+          </p>
+        )}
+        {priceUi.altLine ? <p className="mt-2 text-sm text-[var(--text-muted)]">{priceUi.altLine}</p> : null}
+        <p className="mt-3 text-sm leading-relaxed text-[var(--text-secondary)]">{quote.summaryLine}</p>
       </div>
 
       <form onSubmit={(e) => void onPay(e)} className="flex flex-col gap-4">

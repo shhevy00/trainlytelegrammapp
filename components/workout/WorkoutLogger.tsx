@@ -1,17 +1,11 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ContextualAiHelper } from "@/components/ai/ContextualAiHelper";
-import {
-  buildPostWorkoutFacts,
-  buildPostWorkoutFactsFromSummary,
-} from "@/lib/ai/ruleFacts";
 import { spendOneClientSessionBalance, coachClientSessionsBalanceShortRu } from "@/lib/coach/paidSessions";
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
@@ -23,8 +17,16 @@ import { Card } from "@/components/ui/card";
 import { ExerciseCard } from "@/components/workout/ExerciseCard";
 import { HistorySheet } from "@/components/workout/HistorySheet";
 import { MoreSheet } from "@/components/workout/MoreSheet";
+import { ReplaceExerciseSheet } from "@/components/workout/ReplaceExerciseSheet";
 import { StructureSheet } from "@/components/workout/StructureSheet";
-import { demoExerciseCardHints, demoExerciseHistory, type ExerciseHistoryDemo } from "@/lib/mock/workoutDemo";
+import { WorkoutContentTabs, type WorkoutContentTabId } from "@/components/workout/WorkoutContentTabs";
+import { WorkoutLiveStatsRow } from "@/components/workout/WorkoutLiveStatsRow";
+import { WorkoutNotesPanel } from "@/components/workout/WorkoutNotesPanel";
+import { WorkoutScreenHeader } from "@/components/workout/WorkoutScreenHeader";
+import { WorkoutSessionContextCard } from "@/components/workout/WorkoutSessionContextCard";
+import { WorkoutStickyFooter } from "@/components/workout/WorkoutStickyFooter";
+import { buildWorkoutLiveSessionStats } from "@/lib/workout/liveSessionStats";
+import { demoExerciseHistory, type ExerciseHistoryDemo } from "@/lib/mock/workoutDemo";
 import { newWorkoutId } from "@/lib/workout/ids";
 import { createEmptySetRow } from "@/lib/workout/rows";
 import {
@@ -42,12 +44,23 @@ import { workoutMeaningfulSignature } from "@/lib/workout/dirty";
 import { insertPreviousValues } from "@/lib/workout/insertPrevious";
 import type { JournalCompletedWorkout, JournalNoteEntry } from "@/lib/types";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
-import type { WorkoutLoggerBootstrap } from "@/lib/workout/templates";
+import { normalizeWorkoutBootstrap, type WorkoutLoggerBootstrap } from "@/lib/workout/templates";
+import { collectRecentExerciseNamesForClient } from "@/lib/workout/recentExerciseNames";
+import { readRestTimerPreference, type RestTimerSec } from "@/lib/workout/restTimerPreference";
+import { resolvePersistedWorkoutId } from "@/lib/workout/resolvePersistedWorkoutId";
+import { useWorkoutDraftAutosave } from "@/lib/workout/useWorkoutDraftAutosave";
 import type { WorkoutExercise, WorkoutSessionState, WorkoutSetRow } from "@/lib/workout/types";
 
 type Phase = "logging" | "summary";
 
-type BlockingModal = null | "safe_exit" | "no_filled" | "empty_exercises" | "finish_confirm" | "unnamed_exercise";
+type BlockingModal =
+  | null
+  | "safe_exit"
+  | "no_filled"
+  | "empty_exercises"
+  | "finish_confirm"
+  | "unnamed_exercise"
+  | "finish_save_error";
 
 type SummarySnapshot =
   | {
@@ -72,24 +85,6 @@ type SummarySnapshot =
       durationMin: number;
       journalId: string;
     };
-
-function formatElapsed(ms: number): string {
-  const totalSec = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(totalSec / 60);
-  const s = totalSec % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
-/** Короткие чипы из блока «что помнить» (разделитель ·). */
-function rememberChipsFromBlock(block: string): { visible: string[]; extra: number } {
-  const parts = block
-    .split("·")
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-  const list = parts.length > 0 ? parts : block.trim() ? [block.trim()] : [];
-  const visible = list.slice(0, 3).map((p) => (p.length > 28 ? `${p.slice(0, 27)}…` : p));
-  return { visible, extra: Math.max(0, list.length - 3) };
-}
 
 type ElapsedAction = { type: "tick"; startedAtMs: number };
 
@@ -138,19 +133,23 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
   const {
     syncOverviewWorkoutDraft,
     clearOverviewWorkoutDraft,
-    getJournalEntry,
     getExerciseHistoryForClient,
     addCompletedWorkout,
     addNoteEntry,
+    saveWorkoutDraft,
+    discardWorkoutDraft,
     clients,
+    journalEntries,
   } = useMockApp();
   const router = useRouter();
   const finishSaveStartedRef = useRef(false);
+  const scrollMainRef = useRef<HTMLElement | null>(null);
   const initialSession = bootstrap.session;
+  const persistedWorkoutId = useMemo(() => resolvePersistedWorkoutId(bootstrap), [bootstrap]);
+  const templateId = bootstrap.templateId ?? null;
 
   const [session, setSession] = useState<WorkoutSessionState>(() => initialSession);
   const referenceHints = bootstrap.referenceHintsByExerciseName;
-  const rememberBlock = bootstrap.rememberBlock;
   const [baselineSig, setBaselineSig] = useState<string>(() =>
     workoutMeaningfulSignature(initialSession),
   );
@@ -159,14 +158,17 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
   const [summary, setSummary] = useState<SummarySnapshot | null>(null);
 
   const [blockingModal, setBlockingModal] = useState<BlockingModal>(null);
+  const [finishPending, setFinishPending] = useState(false);
+  const [finishSaveError, setFinishSaveError] = useState<string | null>(null);
   const [structureOpen, setStructureOpen] = useState(false);
   const [historyExerciseId, setHistoryExerciseId] = useState<string | null>(null);
   const [moreExerciseId, setMoreExerciseId] = useState<string | null>(null);
+  const [replaceExerciseId, setReplaceExerciseId] = useState<string | null>(null);
+  const [restTimerSec, setRestTimerSec] = useState<RestTimerSec>(() => readRestTimerPreference());
+  const [restCountdownSec, setRestCountdownSec] = useState<number | null>(null);
   const [deleteSetTarget, setDeleteSetTarget] = useState<{ exerciseId: string; rowId: string } | null>(null);
   const [exerciseDeleteConfirmId, setExerciseDeleteConfirmId] = useState<string | null>(null);
-  const [focusMode, setFocusMode] = useState(false);
-  const [focusExerciseIdx, setFocusExerciseIdx] = useState(0);
-  const [restSecondsRemaining, setRestSecondsRemaining] = useState<number | null>(null);
+  const [contentTab, setContentTab] = useState<WorkoutContentTabId>("exercises");
 
   const [elapsedMs, dispatchElapsed] = useReducer(elapsedReducer, 0);
 
@@ -176,9 +178,6 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
 
   const sig = workoutMeaningfulSignature(session);
   const dirty = sig !== baselineSig;
-
-  const focusIdxSafe =
-    session.exercises.length === 0 ? 0 : Math.max(0, Math.min(focusExerciseIdx, session.exercises.length - 1));
 
   useEffect(() => {
     dirtyRef.current = dirty;
@@ -201,9 +200,36 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
     syncOverviewWorkoutDraft({
       session: structuredClone(session),
       referenceHintsByExerciseName: { ...referenceHints },
-      rememberBlock,
+      rememberBlock: "",
     });
-  }, [phase, dirty, session, referenceHints, rememberBlock, syncOverviewWorkoutDraft]);
+  }, [phase, dirty, session, referenceHints, syncOverviewWorkoutDraft]);
+
+  useWorkoutDraftAutosave({
+    enabled: true,
+    workoutId: persistedWorkoutId,
+    templateId,
+    session,
+    sessionSignature: sig,
+    dirty,
+    phase,
+    saveWorkoutDraft,
+    onSaveError: (message) => {
+      if (phase === "logging") setFinishSaveError(message);
+    },
+  });
+
+  useEffect(() => {
+    if (restCountdownSec == null || restCountdownSec <= 0) return;
+    const id = window.setInterval(() => {
+      setRestCountdownSec((prev) => (prev == null || prev <= 1 ? null : prev - 1));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [restCountdownSec]);
+
+  const recentExerciseNames = useMemo(
+    () => collectRecentExerciseNamesForClient(journalEntries, session.clientId),
+    [journalEntries, session.clientId],
+  );
 
   useEffect(() => {
     dispatchElapsed({ type: "tick", startedAtMs: session.startedAtMs });
@@ -235,44 +261,34 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty, phase]);
 
-  const restTimerActive = restSecondsRemaining !== null && restSecondsRemaining > 0;
-  const hasExercisesForFooter = phase === "logging" && session.exercises.length > 0;
-  const mainBottomPad = restTimerActive
-    ? "pb-[calc(16.5rem+max(0.35rem,env(safe-area-inset-bottom,0px)))]"
-    : hasExercisesForFooter
-      ? "pb-[calc(13rem+max(0.35rem,env(safe-area-inset-bottom,0px)))]"
-      : "pb-[calc(10.5rem+max(0.35rem,env(safe-area-inset-bottom,0px)))]";
+  const hideBottomNavOnWorkout = true;
+  const mainBottomPad = "pb-[calc(10.5rem+max(0.5rem,env(safe-area-inset-bottom,0px)))]";
 
-  useEffect(() => {
-    if (!restTimerActive) return;
-    const id = window.setInterval(() => {
-      setRestSecondsRemaining((s) => (s === null ? null : s <= 1 ? null : s - 1));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [restTimerActive]);
+  const liveStats = useMemo(
+    () => buildWorkoutLiveSessionStats(session.exercises, elapsedMs),
+    [session.exercises, elapsedMs],
+  );
 
-  const draftStatusShort = dirty ? "Черновик" : "Ок";
+  const exerciseCountForTabs = countNonSkippedExercises(session.exercises);
 
-  const summaryAiFactsCompleted = useMemo(() => {
-    if (phase !== "summary" || !summary || summary.variant !== "completed") return null;
-    const entry = getJournalEntry(summary.journalId);
-    if (entry?.kind === "workout") return buildPostWorkoutFacts(entry);
-    return buildPostWorkoutFactsFromSummary({
-      clientName: summary.clientName,
-      title: summary.title,
-      durationMin: summary.durationMin,
-      filledSets: summary.filledSets,
-      exerciseCount: summary.exerciseCount,
-      volumeKg: summary.volumeKg,
-      hint: summary.hint,
-    });
-  }, [phase, summary, getJournalEntry]);
+  const clientRemainingSessions = useMemo(() => {
+    const c = clients.find((cl) => cl.id === session.clientId);
+    return c?.remainingSessions ?? 0;
+  }, [clients, session.clientId]);
 
   const resetWorkout = useCallback((): void => {
     dirtyEverRef.current = false;
     clearOverviewWorkoutDraft();
     router.replace("/start-workout");
   }, [clearOverviewWorkoutDraft, router]);
+
+  const handleBack = useCallback((): void => {
+    if (dirtyRef.current) {
+      setBlockingModal("safe_exit");
+      return;
+    }
+    router.back();
+  }, [router]);
 
   const saveDraftBaseline = useCallback((): void => {
     setBaselineSig(workoutMeaningfulSignature(session));
@@ -286,9 +302,49 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
     }));
   }, []);
 
+  const scrollExerciseIntoView = useCallback((anchorId: string): void => {
+    const run = (): void => {
+      const container = scrollMainRef.current;
+      const el = document.getElementById(anchorId);
+      if (!container || !el) return;
+      const footerReservePx = 200;
+      const elTop = el.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop - 12;
+      const elBottom = el.getBoundingClientRect().bottom - container.getBoundingClientRect().top + container.scrollTop;
+      const visibleBottom = container.scrollTop + container.clientHeight - footerReservePx;
+      const target =
+        elBottom > visibleBottom
+          ? elBottom - container.clientHeight + footerReservePx
+          : elTop;
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      container.scrollTo({ top: Math.max(0, Math.min(maxScroll, target)), behavior: "smooth" });
+    };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+  }, []);
+
+  const jumpToExercise = useCallback(
+    (anchorId: string): void => {
+      setContentTab("exercises");
+      scrollExerciseIntoView(anchorId);
+    },
+    [scrollExerciseIntoView],
+  );
+
+  const moveExercise = useCallback((id: string, direction: -1 | 1): void => {
+    setSession((s) => {
+      const idx = s.exercises.findIndex((e) => e.id === id);
+      if (idx < 0) return s;
+      const target = idx + direction;
+      if (target < 0 || target >= s.exercises.length) return s;
+      const exercises = [...s.exercises];
+      const [item] = exercises.splice(idx, 1);
+      exercises.splice(target, 0, item!);
+      return { ...s, exercises };
+    });
+  }, []);
+
   const addBlankExercise = useCallback((): void => {
     const exerciseId = newWorkoutId();
-    const jumpToNewInFocus = focusMode;
+    setContentTab("exercises");
     setSession((s) => {
       const nextExercises = [
         ...s.exercises,
@@ -300,29 +356,39 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
           sets: [createEmptySetRow()],
         },
       ];
-      if (jumpToNewInFocus && nextExercises.length > 0) {
-        queueMicrotask(() => setFocusExerciseIdx(nextExercises.length - 1));
-      }
+      queueMicrotask(() => jumpToExercise(`ex-${exerciseId}`));
       return {
         ...s,
         exercises: nextExercises,
       };
     });
-  }, [focusMode]);
+  }, [jumpToExercise]);
 
-  const patchSet = useCallback((exerciseId: string, setId: string, patch: Partial<WorkoutSetRow>): void => {
-    setSession((s) => ({
-      ...s,
-      exercises: s.exercises.map((ex) =>
-        ex.id !== exerciseId
-          ? ex
-          : {
-              ...ex,
-              sets: ex.sets.map((row) => (row.id === setId ? { ...row, ...patch } : row)),
-            },
-      ),
-    }));
-  }, []);
+  const patchSet = useCallback(
+    (exerciseId: string, setId: string, patch: Partial<WorkoutSetRow>): void => {
+      let shouldStartRest = false;
+      setSession((s) => ({
+        ...s,
+        exercises: s.exercises.map((ex) => {
+          if (ex.id !== exerciseId) return ex;
+          return {
+            ...ex,
+            sets: ex.sets.map((row) => {
+              if (row.id !== setId) return row;
+              if (patch.done === true && !row.done && restTimerSec > 0) {
+                shouldStartRest = true;
+              }
+              return { ...row, ...patch };
+            }),
+          };
+        }),
+      }));
+      if (shouldStartRest) {
+        setRestCountdownSec(restTimerSec);
+      }
+    },
+    [restTimerSec],
+  );
 
   const deleteExercise = useCallback((exerciseId: string): void => {
     setSession((s) => ({
@@ -361,9 +427,9 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
   const addExerciseWithName = useCallback((name: string): void => {
     const exerciseId = newWorkoutId();
     const trimmed = name.trim();
-    setSession((s) => ({
-      ...s,
-      exercises: [
+    setContentTab("exercises");
+    setSession((s) => {
+      const nextExercises = [
         ...s.exercises,
         {
           id: exerciseId,
@@ -372,9 +438,11 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
           skipped: false,
           sets: [createEmptySetRow()],
         },
-      ],
-    }));
-  }, []);
+      ];
+      queueMicrotask(() => jumpToExercise(`ex-${exerciseId}`));
+      return { ...s, exercises: nextExercises };
+    });
+  }, [jumpToExercise]);
 
   const requestDeleteExerciseFromStructure = useCallback(
     (id: string): void => {
@@ -424,12 +492,6 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
     [patchExercise, resolveInsertTemplate, session.exercises],
   );
 
-  const jumpToExercise = useCallback((anchorId: string): void => {
-    window.requestAnimationFrame(() => {
-      document.getElementById(anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-  }, []);
-
   const openFinishFlow = useCallback((): void => {
     const filled = countFilledSetsWorkout(session.exercises);
     if (filled === 0) {
@@ -448,10 +510,11 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
   }, [session.exercises]);
 
   const finalizeCompletedWorkout = useCallback((): void => {
-    if (finishSaveStartedRef.current) return;
+    if (finishSaveStartedRef.current || finishPending) return;
     finishSaveStartedRef.current = true;
-    dirtyEverRef.current = false;
-    clearOverviewWorkoutDraft();
+    setFinishPending(true);
+    setFinishSaveError(null);
+
     const durationMin = Math.max(1, Math.round((Date.now() - session.startedAtMs) / 60_000));
     const volumeKg = computeWorkoutVolumeKg(session.exercises);
     const filledSets = countFilledSetsWorkout(session.exercises);
@@ -477,30 +540,54 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
     const clientBefore = clients.find((c) => c.id === session.clientId);
     const remainingSessionsAfter =
       clientBefore != null ? spendOneClientSessionBalance(clientBefore.remainingSessions) : 0;
-    void Promise.resolve(addCompletedWorkout(entry));
-    setSummary({
-      variant: "completed",
-      clientId: session.clientId,
-      clientName: session.clientName,
-      title: session.title,
-      durationMin,
-      volumeKg,
-      filledSets,
-      exerciseCount,
-      hint,
-      journalId: id,
-      remainingSessionsAfter,
-    });
-    setPhase("summary");
-    setBlockingModal(null);
-    setBaselineSig(workoutMeaningfulSignature(session));
-  }, [addCompletedWorkout, clearOverviewWorkoutDraft, clients, session]);
+
+    void (async (): Promise<void> => {
+      try {
+        await addCompletedWorkout(entry);
+        await discardWorkoutDraft(persistedWorkoutId);
+        dirtyEverRef.current = false;
+        clearOverviewWorkoutDraft();
+        setSummary({
+          variant: "completed",
+          clientId: session.clientId,
+          clientName: session.clientName,
+          title: session.title,
+          durationMin,
+          volumeKg,
+          filledSets,
+          exerciseCount,
+          hint,
+          journalId: id,
+          remainingSessionsAfter,
+        });
+        setPhase("summary");
+        setBlockingModal(null);
+        setBaselineSig(workoutMeaningfulSignature(session));
+      } catch (e) {
+        finishSaveStartedRef.current = false;
+        const msg = e instanceof Error ? e.message : "Не удалось сохранить тренировку.";
+        setFinishSaveError(msg);
+        setBlockingModal("finish_save_error");
+      } finally {
+        setFinishPending(false);
+      }
+    })();
+  }, [
+    addCompletedWorkout,
+    clearOverviewWorkoutDraft,
+    clients,
+    discardWorkoutDraft,
+    finishPending,
+    persistedWorkoutId,
+    session,
+  ]);
 
   const finalizeNoteSession = useCallback((): void => {
-    if (finishSaveStartedRef.current) return;
+    if (finishSaveStartedRef.current || finishPending) return;
     finishSaveStartedRef.current = true;
-    dirtyEverRef.current = false;
-    clearOverviewWorkoutDraft();
+    setFinishPending(true);
+    setFinishSaveError(null);
+
     const durationMin = Math.max(1, Math.round((Date.now() - session.startedAtMs) / 60_000));
     const id = newWorkoutId();
     const entry: JournalNoteEntry = {
@@ -515,19 +602,41 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
       title: session.title,
       workoutComment: session.workoutComment,
     };
-    void Promise.resolve(addNoteEntry(entry));
-    setSummary({
-      variant: "note",
-      clientId: session.clientId,
-      clientName: session.clientName,
-      title: session.title,
-      durationMin,
-      journalId: id,
-    });
-    setPhase("summary");
-    setBlockingModal(null);
-    setBaselineSig(workoutMeaningfulSignature(session));
-  }, [addNoteEntry, clearOverviewWorkoutDraft, session]);
+
+    void (async (): Promise<void> => {
+      try {
+        await addNoteEntry(entry);
+        await discardWorkoutDraft(persistedWorkoutId);
+        dirtyEverRef.current = false;
+        clearOverviewWorkoutDraft();
+        setSummary({
+          variant: "note",
+          clientId: session.clientId,
+          clientName: session.clientName,
+          title: session.title,
+          durationMin,
+          journalId: id,
+        });
+        setPhase("summary");
+        setBlockingModal(null);
+        setBaselineSig(workoutMeaningfulSignature(session));
+      } catch (e) {
+        finishSaveStartedRef.current = false;
+        const msg = e instanceof Error ? e.message : "Не удалось сохранить заметку.";
+        setFinishSaveError(msg);
+        setBlockingModal("finish_save_error");
+      } finally {
+        setFinishPending(false);
+      }
+    })();
+  }, [
+    addNoteEntry,
+    clearOverviewWorkoutDraft,
+    discardWorkoutDraft,
+    finishPending,
+    persistedWorkoutId,
+    session,
+  ]);
 
   const moreExercise = moreExerciseId
     ? session.exercises.find((e) => e.id === moreExerciseId) ?? null
@@ -549,8 +658,6 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
     return demoExerciseHistory[historyExerciseId] ?? null;
   }, [historyExerciseId, session.exercises, session.clientId, getExerciseHistoryForClient]);
 
-  const rememberChips = useMemo(() => rememberChipsFromBlock(rememberBlock), [rememberBlock]);
-
   if (phase === "summary" && summary) {
     const isNote = summary.variant === "note";
     return (
@@ -564,33 +671,26 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
           </p>
         </header>
 
-        <section className="rounded-2xl border border-[color:var(--border-soft)] bg-[var(--tg-card)] p-4">
-          <p className="text-lg font-semibold text-[var(--text-primary)]">{summary.clientName}</p>
-          <p className="mt-0.5 text-sm text-[var(--tg-muted)]">{summary.title}</p>
-          <p className="mt-3 text-sm text-[var(--tg-muted)]">Длительность: {summary.durationMin} мин</p>
+        <section className="trainly-surface-card premium-surface p-4">
+          <p className="font-display text-lg font-semibold text-[var(--text-primary)]">{summary.clientName}</p>
+          <p className="mt-0.5 text-sm text-[var(--text-muted)]">{summary.title}</p>
 
           {summary.variant === "completed" ? (
             <>
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                <div className="rounded-xl bg-[var(--tg-bg)] px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase text-[var(--tg-muted)]">Подходы</p>
-                  <p className="font-semibold tabular-nums text-[var(--text-primary)]">{summary.filledSets}</p>
-                </div>
-                <div className="rounded-xl bg-[var(--tg-bg)] px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase text-[var(--tg-muted)]">Упражнений</p>
-                  <p className="font-semibold tabular-nums text-[var(--text-primary)]">{summary.exerciseCount}</p>
-                </div>
-                <div className="rounded-xl bg-[var(--tg-bg)] px-3 py-2">
-                  <p className="text-[10px] font-semibold uppercase text-[var(--tg-muted)]">Объём</p>
-                  <p className="font-semibold tabular-nums text-[var(--text-primary)]">
-                    {formatSummaryVolumeCell(summary.volumeKg, summary.filledSets)}
-                  </p>
-                </div>
+              <div className="mt-4">
+                <WorkoutLiveStatsRow
+                  stats={{
+                    volumeLabel: formatSummaryVolumeCell(summary.volumeKg, summary.filledSets),
+                    exerciseCount: summary.exerciseCount,
+                    filledSets: summary.filledSets,
+                    elapsedLabel: `${summary.durationMin} мин`,
+                  }}
+                />
               </div>
-              <p className="mt-3 rounded-xl border border-[color:var(--border-soft)] bg-[var(--tg-bg)] px-3 py-2 text-sm leading-snug text-[var(--tg-text)]">
+              <p className="mt-3 rounded-xl border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--bg-card),transparent_50%)] px-3 py-2.5 text-sm leading-snug text-[var(--text-secondary)]">
                 {summary.hint}
               </p>
-              <p className="mt-3 text-xs text-[var(--tg-muted)]">
+              <p className="mt-3 text-xs text-[var(--text-muted)]">
                 Баланс после сохранения:{" "}
                 <span className="font-semibold text-[var(--text-primary)]">
                   {coachClientSessionsBalanceShortRu(summary.remainingSessionsAfter)}
@@ -603,28 +703,32 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
         <div className="flex flex-col gap-3">
           <Link
             href={`/workouts/${summary.journalId}`}
-            className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-center text-[15px] font-semibold text-white shadow-app-primary"
+            className="trainly-cta-primary app-btn w-full min-h-[52px] px-4 py-3.5 text-center text-[15px] font-bold"
             prefetch={false}
           >
             Открыть запись
           </Link>
 
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-[color:var(--border-soft)] pt-3 text-sm">
-            <Link href="/journal" prefetch={false} className="font-medium text-[var(--tg-accent)]">
+            <Link
+              href="/journal"
+              prefetch={false}
+              className="font-medium text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--text-primary)]"
+            >
               В журнал
             </Link>
             {!isNote ? (
               <Link
                 href={`/clients/${encodeURIComponent(summary.clientId)}`}
                 prefetch={false}
-                className="font-medium text-[var(--tg-accent)]"
+                className="font-medium text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--text-primary)]"
               >
                 К клиенту
               </Link>
             ) : null}
             <button
               type="button"
-              className="font-medium text-[var(--tg-accent)] underline-offset-2 hover:underline"
+              className="font-medium text-[var(--text-secondary)] underline-offset-2 hover:text-[var(--text-primary)]"
               onClick={resetWorkout}
             >
               Новая тренировка
@@ -632,254 +736,95 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
           </div>
         </div>
 
-        {summary.variant === "completed" && summaryAiFactsCompleted ? (
-          <details className="rounded-xl border border-[color:var(--border-soft)] bg-[var(--tg-card)]/60 px-3 py-2">
-            <summary className="cursor-pointer text-sm font-medium text-[var(--text-muted)]">
-              Сообщение клиенту — черновик, не отправляется
-            </summary>
-            <div className="mt-3 space-y-3 pb-1">
-              <ContextualAiHelper
-                variant="compact"
-                heading="Итог тренировки"
-                facts={summaryAiFactsCompleted}
-                generateKind="post_workout_summary"
-                generateLabel="Сформулировать"
-              />
-              <ContextualAiHelper
-                variant="compact"
-                heading="Текст для клиента"
-                facts={summaryAiFactsCompleted}
-                generateKind="telegram_session_followup"
-                generateLabel="Сформулировать"
-              />
-            </div>
-          </details>
-        ) : null}
       </main>
     );
   }
 
   return (
-    <>
-      <main className={`flex w-full flex-col gap-3 px-3 py-3 ${mainBottomPad} sm:px-4`}>
-        <header className="flex flex-col gap-2 border-b border-[color:var(--border-soft)] pb-2">
-          <div className="flex items-center justify-between gap-2">
-            <p className="min-w-0 truncate text-xs font-medium text-[var(--tg-muted)]">{session.clientName}</p>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-              <span className="font-mono text-sm font-semibold tabular-nums text-[var(--text-primary)]">
-                {formatElapsed(elapsedMs)}
-              </span>
-              <span className="rounded-full bg-[var(--tg-bg)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--tg-muted)]">
-                {draftStatusShort}
-              </span>
-              {session.exercises.length > 0 ? (
+  <div className="flex h-full min-h-0 w-full flex-1 flex-col">
+      <main
+        ref={scrollMainRef}
+        className={`app-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-y-contain px-3 py-3 ${mainBottomPad} sm:px-4`}
+      >
+        <WorkoutScreenHeader onBack={handleBack} />
+        <WorkoutSessionContextCard
+          clientName={session.clientName}
+          title={session.title}
+          startedAtMs={session.startedAtMs}
+          onTitleChange={(title) => setSession((s) => ({ ...s, title }))}
+        />
+        <WorkoutLiveStatsRow stats={liveStats} />
+        <section className="trainly-surface-card px-3 py-2.5">
+          <label className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]" htmlFor="session-comment-inline">
+            Учесть
+          </label>
+          <textarea
+            id="session-comment-inline"
+            rows={2}
+            placeholder="Ограничения, самочувствие, фокус сессии…"
+            value={session.workoutComment}
+            onChange={(e) => setSession((s) => ({ ...s, workoutComment: e.target.value }))}
+            className="mt-1.5 w-full resize-none rounded-xl border border-[color:var(--border-soft)] bg-[var(--bg-card)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[color:var(--border-strong)]"
+          />
+        </section>
+        <WorkoutContentTabs
+          activeTab={contentTab}
+          exerciseCount={exerciseCountForTabs}
+          onTabChange={setContentTab}
+          notesPanel={
+            <WorkoutNotesPanel
+              workoutComment={session.workoutComment}
+              dirty={dirty}
+              onWorkoutCommentChange={(workoutComment) => setSession((s) => ({ ...s, workoutComment }))}
+            />
+          }
+          exercisesPanel={
+            session.exercises.length === 0 ? (
+              <Card className="border-dashed border-[color:var(--border-strong)] px-4 py-5">
+                <p className="font-medium text-[var(--text-primary)]">Добавьте первое упражнение</p>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--tg-muted)]">
+                  Так тренировка начнётся с чистой структуры.
+                </p>
                 <button
                   type="button"
-                  className="rounded-full border border-[color:var(--border-soft)] bg-[var(--tg-bg)] px-2 py-0.5 text-[10px] font-semibold text-[var(--text-secondary)]"
-                  onClick={() => {
-                    setFocusMode((m) => !m);
-                    setFocusExerciseIdx(0);
-                  }}
+                  className="app-cta-gradient app-btn mt-4 w-full min-h-[48px] px-4 py-3 font-bold"
+                  onClick={addBlankExercise}
                 >
-                  {focusMode ? "Все" : "Фокус"}
+                  Добавить упражнение
                 </button>
-              ) : null}
-            </div>
-          </div>
-          {dirty ? (
-            <p className="text-[10px] leading-snug text-[var(--tg-muted)]">
-              Черновик хранится только в этой вкладке браузера.
-            </p>
-          ) : null}
-          <label className="sr-only" htmlFor="workout-title-input">
-            Название тренировки
-          </label>
-          <input
-            id="workout-title-input"
-            value={session.title}
-            onChange={(e) => setSession((s) => ({ ...s, title: e.target.value }))}
-            className="w-full truncate rounded-lg border border-transparent bg-transparent py-0.5 font-display text-[17px] font-semibold leading-tight text-[var(--text-primary)] outline-none focus:border-[color:var(--border-soft)]"
-          />
-
-          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--tg-muted)]">Учесть:</span>
-            {rememberChips.visible.length === 0 ? (
-              <span className="text-xs text-[var(--tg-muted)]">—</span>
+              </Card>
             ) : (
-              rememberChips.visible.map((c, i) => (
-                <span
-                  key={`${i}-${c.slice(0, 20)}`}
-                  className="rounded-full border border-[color:var(--border-soft)] bg-[var(--tg-bg)] px-2 py-0.5 text-[11px] font-medium text-[var(--text-primary)]"
-                >
-                  {c}
-                </span>
-              ))
-            )}
-            {rememberChips.extra > 0 ? (
-              <span className="text-[11px] font-semibold text-[var(--tg-accent)]">+{rememberChips.extra}</span>
-            ) : null}
-          </div>
-        </header>
-
-        {session.exercises.length === 0 ? (
-          <Card className="border-dashed border-[color:var(--border-strong)] px-4 py-5">
-            <p className="font-medium text-[var(--text-primary)]">Добавьте первое упражнение</p>
-            <p className="mt-1 text-sm leading-relaxed text-[var(--tg-muted)]">
-              Так тренировка начнётся с чистой структуры.
-            </p>
-            <button
-              type="button"
-              className="app-btn mt-4 w-full rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary"
-              onClick={addBlankExercise}
-            >
-              Добавить упражнение
-            </button>
-          </Card>
-        ) : (
-          <>
-            <section className="flex flex-col gap-3">
-              {(focusMode && session.exercises[focusIdxSafe]
-                ? [session.exercises[focusIdxSafe]]
-                : session.exercises
-              ).map((exercise) => {
-                  if (!exercise) return null;
-                  const hints = demoExerciseCardHints[exercise.id];
-                  const nameKey = exercise.name.trim();
-                  const journalHist =
-                    nameKey.length > 0 ? getExerciseHistoryForClient(session.clientId, nameKey) : null;
-                  return (
+              <>
+                <section className="flex flex-col gap-3 pb-2">
+                  {session.exercises.map((exercise, idx) => (
                     <ExerciseCard
                       key={exercise.id}
+                      exerciseIndex={idx + 1}
                       exercise={exercise}
-                      previousText={
-                        referenceHints[exercise.name] ?? journalHist?.previousSummary ?? hints?.previous ?? ""
-                      }
-                      bestText={journalHist?.bestSummary ?? hints?.best ?? null}
                       scrollAnchorId={`ex-${exercise.id}`}
                       onExercisePatch={(patch) => patchExercise(exercise.id, patch)}
                       onSetChange={(setId, patch) => patchSet(exercise.id, setId, patch)}
                       onRequestDeleteSet={(rowId) => requestDeleteSet(exercise.id, rowId)}
-                      onOpenHistory={() => setHistoryExerciseId(exercise.id)}
                       onOpenMore={() => setMoreExerciseId(exercise.id)}
                     />
-                  );
-                },
-              )}
-            </section>
-            {focusMode && session.exercises.length > 1 ? (
-              <div className="flex items-center justify-between gap-2 rounded-xl border border-[color:var(--border-soft)] bg-[var(--tg-card)]/80 px-3 py-2">
-                <button
-                  type="button"
-                  className="app-btn rounded-lg border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] disabled:opacity-40"
-                  disabled={focusIdxSafe <= 0}
-                  onClick={() => setFocusExerciseIdx(focusIdxSafe - 1)}
-                >
-                  Назад
-                </button>
-                <span className="text-xs font-semibold tabular-nums text-[var(--tg-muted)]">
-                  {focusIdxSafe + 1} / {session.exercises.length}
-                </span>
-                <button
-                  type="button"
-                  className="app-btn rounded-lg border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] disabled:opacity-40"
-                  disabled={focusIdxSafe >= session.exercises.length - 1}
-                  onClick={() => setFocusExerciseIdx(focusIdxSafe + 1)}
-                >
-                  Дальше
-                </button>
-              </div>
-            ) : null}
-            {!focusMode ? (
-              <button
-                type="button"
-                className="app-btn w-full rounded-xl border border-[color:color-mix(in_srgb,var(--tg-accent),transparent_45%)] bg-[color:color-mix(in_srgb,var(--tg-accent),transparent_92%)] py-2.5 text-sm font-bold text-[var(--tg-accent)]"
-                onClick={() => addBlankExercise()}
-              >
-                + Упражнение
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="app-btn w-full rounded-xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] py-2.5 text-sm font-semibold text-[var(--text-primary)]"
-                onClick={() => addBlankExercise()}
-              >
-                + Упражнение
-              </button>
-            )}
-          </>
-        )}
-
-        <section className="rounded-xl border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--tg-card),transparent_40%)] px-3 py-2">
-          <label className="sr-only" htmlFor="session-comment">
-            Комментарий к тренировке
-          </label>
-          <textarea
-            id="session-comment"
-            rows={session.workoutComment.trim().length > 0 ? 3 : 2}
-            placeholder="Комментарий к тренировке"
-            value={session.workoutComment}
-            onChange={(e) => setSession((s) => ({ ...s, workoutComment: e.target.value }))}
-            className="w-full resize-none border-0 bg-transparent py-1 text-sm text-[var(--tg-text)] placeholder:text-[var(--tg-muted)] outline-none"
-          />
-        </section>
+                  ))}
+                </section>
+              </>
+            )
+          }
+        />
       </main>
 
-      <div className="fixed bottom-[calc(5.5rem+max(0.35rem,env(safe-area-inset-bottom,0px)))] left-1/2 z-40 flex w-full max-w-[min(100%,480px)] -translate-x-1/2 flex-col gap-2 border-t border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--tg-bar),black_12%)]/95 px-3 py-2 backdrop-blur-md supports-[backdrop-filter]:bg-[color:color-mix(in_srgb,var(--tg-bar),black_8%)]/88">
-        {hasExercisesForFooter ? (
-          <div className="rounded-xl border border-[color:var(--border-soft)] bg-[var(--tg-bg)]/90 px-2 py-1.5">
-            {restTimerActive ? (
-              <div className="flex items-center justify-between gap-2 px-1 py-0.5">
-                <span className="font-mono text-xl font-bold tabular-nums text-[var(--text-primary)] sm:text-2xl">
-                  {restSecondsRemaining}
-                </span>
-                <span className="text-center text-[11px] text-[var(--tg-muted)]">Отдых, сек</span>
-                <button
-                  type="button"
-                  className="shrink-0 text-xs font-semibold text-[var(--tg-accent)]"
-                  onClick={() => setRestSecondsRemaining(null)}
-                >
-                  Пропустить
-                </button>
-              </div>
-            ) : (
-              <details className="group">
-                <summary className="cursor-pointer list-none px-1 py-1 text-[11px] font-medium text-[var(--tg-muted)] marker:hidden [&::-webkit-details-marker]:hidden">
-                  <span className="text-[var(--text-secondary)]">Отдых</span>
-                  <span className="ml-1 text-[10px] text-[var(--tg-muted)]">· таймер</span>
-                </summary>
-                <div className="flex flex-wrap items-center gap-1.5 border-t border-[color:var(--border-soft)] px-1 pb-1 pt-2">
-                  {[60, 90, 120].map((sec) => (
-                    <button
-                      key={sec}
-                      type="button"
-                      className="rounded-lg border border-[color:var(--border-strong)] bg-[var(--tg-card)] px-2 py-1 text-[11px] font-bold tabular-nums text-[var(--text-primary)]"
-                      onClick={() => setRestSecondsRemaining(sec)}
-                    >
-                      {sec} с
-                    </button>
-                  ))}
-                </div>
-              </details>
-            )}
-          </div>
-        ) : null}
-        <div className="flex items-stretch gap-2">
-          <button
-            type="button"
-            className="app-btn shrink-0 rounded-xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-3 py-2.5 text-sm font-semibold text-[var(--text-primary)]"
-            onClick={() => setStructureOpen(true)}
-          >
-            Структура
-          </button>
-          <button
-            type="button"
-            className="app-btn min-w-0 flex-1 rounded-xl bg-[var(--tg-accent)] py-3.5 text-base font-bold text-white shadow-[0_6px_20px_rgba(0,0,0,0.25)]"
-            onClick={openFinishFlow}
-          >
-            Завершить
-          </button>
-        </div>
-      </div>
+      <WorkoutStickyFooter
+        hideBottomNav={hideBottomNavOnWorkout}
+        finishPending={finishPending}
+        restTimerSec={restTimerSec}
+        restCountdownSec={restCountdownSec}
+        onRestTimerChange={setRestTimerSec}
+        onOpenStructure={() => setStructureOpen(true)}
+        onAddExercise={() => addBlankExercise()}
+        onFinish={openFinishFlow}
+      />
 
       <StructureSheet
         open={structureOpen}
@@ -889,6 +834,7 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
         onAddExercise={addExerciseWithName}
         onRenameExercise={(id, name) => patchExercise(id, { name })}
         onRequestDeleteExercise={requestDeleteExerciseFromStructure}
+        onMoveExercise={moveExercise}
       />
 
       <HistorySheet
@@ -909,6 +855,9 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
         onExercisePatch={(patch) => {
           if (moreExerciseId) patchExercise(moreExerciseId, patch);
         }}
+        onOpenHistory={() => {
+          if (moreExerciseId) setHistoryExerciseId(moreExerciseId);
+        }}
         onSkipExercise={() => {
           if (moreExerciseId) patchExercise(moreExerciseId, { skipped: true });
         }}
@@ -921,6 +870,23 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
         onChangeSetType={(rowId, type) => {
           if (!moreExerciseId) return;
           patchSet(moreExerciseId, rowId, { setType: type });
+        }}
+        onOpenReplace={() => {
+          if (moreExerciseId) setReplaceExerciseId(moreExerciseId);
+        }}
+      />
+
+      <ReplaceExerciseSheet
+        open={replaceExerciseId !== null}
+        currentName={
+          replaceExerciseId != null
+            ? (session.exercises.find((e) => e.id === replaceExerciseId)?.name ?? "")
+            : ""
+        }
+        suggestions={recentExerciseNames}
+        onClose={() => setReplaceExerciseId(null)}
+        onSelect={(name) => {
+          if (replaceExerciseId) patchExercise(replaceExerciseId, { name });
         }}
       />
 
@@ -1134,12 +1100,44 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
             aria-modal="true"
             className="w-[calc(100%-2rem)] max-w-md rounded-3xl border border-[color:var(--border-soft)] bg-[var(--tg-card)] p-5 shadow-2xl"
           >
-            <h2 className="text-lg font-semibold">Завершить тренировку?</h2>
-            <p className="mt-3 text-sm text-[var(--tg-muted)]">
-              Упражнений: {countNonSkippedExercises(session.exercises)} · Заполненных подходов:{" "}
-              {countFilledSetsWorkout(session.exercises)} · Время:{" "}
-              {Math.max(1, Math.round(elapsedMs / 60_000))} мин
-            </p>
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Завершить тренировку?</h2>
+            <ul className="mt-3 space-y-1.5 text-sm text-[var(--text-secondary)]">
+              <li>
+                Упражнений:{" "}
+                <span className="font-semibold tabular-nums text-[var(--text-primary)]">
+                  {countNonSkippedExercises(session.exercises)}
+                </span>
+              </li>
+              <li>
+                Подходов:{" "}
+                <span className="font-semibold tabular-nums text-[var(--text-primary)]">
+                  {countFilledSetsWorkout(session.exercises)}
+                </span>
+              </li>
+              <li>
+                Объём:{" "}
+                <span className="font-semibold text-[var(--text-primary)]">
+                  {formatSummaryVolumeCell(
+                    computeWorkoutVolumeKg(session.exercises),
+                    countFilledSetsWorkout(session.exercises),
+                  )}
+                </span>
+              </li>
+              <li>
+                Время:{" "}
+                <span className="font-semibold tabular-nums text-[var(--text-primary)]">
+                  {Math.max(1, Math.round(elapsedMs / 60_000))} мин
+                </span>
+              </li>
+              <li>
+                Останется занятий:{" "}
+                <span className="font-semibold tabular-nums text-[var(--text-primary)]">
+                  {coachClientSessionsBalanceShortRu(
+                    spendOneClientSessionBalance(clientRemainingSessions),
+                  )}
+                </span>
+              </li>
+            </ul>
             <label className="mt-4 block text-sm font-medium" htmlFor="finish-session-note">
               Комментарий к сессии
             </label>
@@ -1153,12 +1151,13 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
             <div className="mt-4 flex flex-col gap-2">
               <button
                 type="button"
-                className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary"
+                className="trainly-cta-primary app-btn w-full min-h-[48px] px-4 py-3 font-bold disabled:opacity-60"
+                disabled={finishPending}
                 onClick={() => {
                   finalizeCompletedWorkout();
                 }}
               >
-                Сохранить в журнал
+                {finishPending ? "Сохранение…" : "Сохранить в журнал"}
               </button>
               <button
                 type="button"
@@ -1171,27 +1170,50 @@ function WorkoutLoggerInner({ bootstrap }: { bootstrap: WorkoutLoggerBootstrap }
           </div>
         </ModalScrim>
       ) : null}
-    </>
+
+      {blockingModal === "finish_save_error" ? (
+        <ModalScrim>
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="w-[calc(100%-2rem)] max-w-md rounded-3xl border border-[color:var(--border-soft)] bg-[var(--tg-card)] p-5 shadow-2xl"
+          >
+            <h2 className="text-lg font-semibold text-[var(--text-primary)]">Не удалось сохранить</h2>
+            <p className="mt-2 text-sm text-[var(--tg-muted)]">
+              {finishSaveError ?? "Проверьте подключение и попробуйте снова."}
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                className="trainly-cta-primary app-btn w-full min-h-[48px] px-4 py-3 font-bold"
+                onClick={() => {
+                  setBlockingModal("finish_confirm");
+                  finalizeCompletedWorkout();
+                }}
+              >
+                Повторить
+              </button>
+              <button
+                type="button"
+                className="rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-sm font-semibold"
+                onClick={() => setBlockingModal(null)}
+              >
+                Вернуться к логу
+              </button>
+            </div>
+          </div>
+        </ModalScrim>
+      ) : null}
+    </div>
   );
 }
 
 export function WorkoutLogger(): ReactElement {
   const { consumeWorkoutBootstrap } = useMockApp();
-  const [bootstrap, setBootstrap] = useState<WorkoutLoggerBootstrap | null | undefined>(undefined);
-
-  useLayoutEffect(() => {
-    // Очередь bootstrap живёт в ref провайдера; переносим в state один раз за монтирование страницы.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- синхронизация с ref-очередью при входе на /workout
-    setBootstrap(consumeWorkoutBootstrap());
-  }, [consumeWorkoutBootstrap]);
-
-  if (bootstrap === undefined) {
-    return (
-      <main className="flex min-h-[40vh] w-full flex-col items-center justify-center gap-2 px-4 py-10">
-        <p className="text-sm text-[var(--tg-muted)]">Подготовка тренировки…</p>
-      </main>
-    );
-  }
+  const [bootstrap] = useState<WorkoutLoggerBootstrap | null>(() => {
+    const raw = consumeWorkoutBootstrap();
+    return raw ? normalizeWorkoutBootstrap(raw) : raw;
+  });
 
   if (bootstrap === null) {
     return <WorkoutLoggerRedirect />;

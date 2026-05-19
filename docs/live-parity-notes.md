@@ -24,9 +24,17 @@
 
 ```bash
 npm run test:unit
+npm run test:integration
 ```
 
-(см. [`scripts/unit-tests.ts`](../scripts/unit-tests.ts).)
+(см. [`scripts/unit-tests.ts`](../scripts/unit-tests.ts), [`scripts/integration/`](../scripts/integration/).)
+
+## Реализовано в коде (2026-05)
+
+- Черновики тренировки: `draft` / `in_progress` в PostgreSQL, autosave из `WorkoutLogger`, resume на `/start-workout`.
+- Биллинг: self-service `active` только через webhook; в production обязательна верификация платежа API ЮKassa и `trainly_order_id`.
+- Лимиты клиентов по тарифу (Start 10 / Pro 30 / Max 80, free 2) в `lib/billing/planLimits.ts` и `dbAddClient`.
+- Удаление аккаунта: `trainlyDeleteAccountAction` + каскад `trainers`.
 
 ## Журнал ручного прогона
 

@@ -13,6 +13,7 @@ interface StructureSheetProps {
   onAddExercise: (name: string) => void;
   onRenameExercise: (id: string, name: string) => void;
   onRequestDeleteExercise: (id: string) => void;
+  onMoveExercise: (id: string, direction: -1 | 1) => void;
 }
 
 export function StructureSheet({
@@ -23,6 +24,7 @@ export function StructureSheet({
   onAddExercise,
   onRenameExercise,
   onRequestDeleteExercise,
+  onMoveExercise,
 }: StructureSheetProps): ReactElement | null {
   const [newName, setNewName] = useState("");
   const [renameId, setRenameId] = useState<string | null>(null);
@@ -52,6 +54,11 @@ export function StructureSheet({
   return (
     <WorkoutSheetFrame title="Структура тренировки" subtitle="Список, добавление и переименование" onClose={onClose}>
       <ul className="mt-3 flex max-h-[45vh] flex-col gap-2 overflow-y-auto overscroll-contain pr-0.5">
+        {exercises.length === 0 ? (
+          <li className="rounded-xl border border-dashed border-[color:var(--border-strong)] px-4 py-5 text-center text-sm text-[var(--tg-muted)]">
+            Пока нет упражнений — добавьте ниже или через «+ Упр.» на экране.
+          </li>
+        ) : null}
         {exercises.map((ex, i) => {
           const filled = countFilledSetsInExercise(ex);
           const anchor = `ex-${ex.id}`;
@@ -84,6 +91,29 @@ export function StructureSheet({
                     )}
                   </div>
                 </div>
+
+                {!isRenaming && exercises.length > 1 ? (
+                  <div className="flex gap-1 pl-8">
+                    <button
+                      type="button"
+                      className="min-h-[36px] rounded-lg border border-[color:var(--border-soft)] px-2 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-40"
+                      disabled={i === 0}
+                      aria-label="Выше"
+                      onClick={() => onMoveExercise(ex.id, -1)}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      className="min-h-[36px] rounded-lg border border-[color:var(--border-soft)] px-2 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-40"
+                      disabled={i === exercises.length - 1}
+                      aria-label="Ниже"
+                      onClick={() => onMoveExercise(ex.id, 1)}
+                    >
+                      ↓
+                    </button>
+                  </div>
+                ) : null}
 
                 {isRenaming ? (
                   <div className="flex flex-wrap gap-2 pl-8">

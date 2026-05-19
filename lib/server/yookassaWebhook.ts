@@ -1,6 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import type { AppDatabase } from "@/db/client";
-import { PAID_PLAN_CHECKOUT, type PaidPlanSlug } from "@/lib/billing/planDefinitions";
+import {
+  accessValidDaysForBillingPeriod,
+  getPaidPlanCheckoutQuote,
+  normalizePaidPlanSlug,
+  parseBillingPeriodParam,
+  type BillingPeriod,
+  type PaidPlanSlug,
+} from "@/lib/billing/planDefinitions";
 import { billingWebhookEvents, trainlyOrders, trainerProductAccess } from "@/db/schema";
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -50,10 +57,6 @@ async function fetchYookassaPayment(
     amountValue = amount.value;
   }
   return { status, metadata: parseMetadata(data.metadata), amountValue };
-}
-
-function isPaidPlanSlug(v: string): v is PaidPlanSlug {
-  return v === "start" || v === "pro" || v === "max";
 }
 
 /**
@@ -131,15 +134,13 @@ export async function processYookassaWebhook(
       return { httpStatus: 200, message: "ignored_event" };
     }
 
+    const isProduction = process.env.NODE_ENV === "production";
     const verified = await fetchYookassaPayment(paymentId);
     const notifyStatus = typeof object.status === "string" ? object.status : "";
     const metadata = verified?.metadata ?? parseMetadata(object.metadata);
     const statusToCheck = verified?.status ?? notifyStatus;
 
-    const requireApiVerify =
-      process.env.NODE_ENV === "production" && process.env.YOOKASSA_REQUIRE_API_VERIFY === "true";
-
-    if (requireApiVerify && verified == null) {
+    if (isProduction && verified == null) {
       await mark(503, "yookassa_api_verify_failed_or_unconfigured");
       return { httpStatus: 503, message: "verify_required" };
     }
@@ -158,21 +159,76 @@ export async function processYookassaWebhook(
       return { httpStatus: 200, message: "no_trainly_metadata" };
     }
 
-    if (!isPaidPlanSlug(planCodeRaw)) {
+    const planSlug = normalizePaidPlanSlug(planCodeRaw);
+    if (planSlug == null) {
       await mark(200, "invalid_plan_code");
       return { httpStatus: 200, message: "invalid_plan_code" };
     }
 
-    const plan = PAID_PLAN_CHECKOUT[planCodeRaw];
+    if (isProduction && (typeof orderId !== "string" || orderId.length === 0)) {
+      await mark(200, "missing_order_id");
+      return { httpStatus: 200, message: "missing_order_id" };
+    }
+
+    let billingPeriod: BillingPeriod = parseBillingPeriodParam(
+      metadata.billing_period ?? metadata.billingPeriod,
+    );
+    let orderAmountRub: number | null = null;
+
+    if (typeof orderId === "string" && orderId.length > 0) {
+      const orderRows = await db
+        .select({
+          id: trainlyOrders.id,
+          planCode: trainlyOrders.planCode,
+          amountRub: trainlyOrders.amountRub,
+          status: trainlyOrders.status,
+          yookassaPaymentId: trainlyOrders.yookassaPaymentId,
+          metadataJson: trainlyOrders.metadataJson,
+        })
+        .from(trainlyOrders)
+        .where(and(eq(trainlyOrders.id, orderId), eq(trainlyOrders.trainerId, trainerId)))
+        .limit(1);
+      const order = orderRows[0];
+      if (order == null) {
+        await mark(200, "order_not_found");
+        return { httpStatus: 200, message: "order_not_found" };
+      }
+      const orderPlanSlug = normalizePaidPlanSlug(order.planCode);
+      if (orderPlanSlug !== planSlug) {
+        await mark(200, "order_plan_mismatch");
+        return { httpStatus: 200, message: "order_plan_mismatch" };
+      }
+      if (
+        order.yookassaPaymentId != null &&
+        order.yookassaPaymentId.length > 0 &&
+        order.yookassaPaymentId !== paymentId
+      ) {
+        await mark(200, "payment_id_mismatch");
+        return { httpStatus: 200, message: "payment_id_mismatch" };
+      }
+      const orderMeta = order.metadataJson;
+      if (isRecord(orderMeta) && typeof orderMeta.billingPeriod === "string") {
+        billingPeriod = parseBillingPeriodParam(orderMeta.billingPeriod);
+      }
+      orderAmountRub = order.amountRub;
+    }
+
+    const quote = getPaidPlanCheckoutQuote(planSlug, billingPeriod);
+
     if (verified?.amountValue != null) {
       const got = Number.parseFloat(verified.amountValue.replace(",", "."));
-      if (!Number.isFinite(got) || Math.round(got) !== plan.amountRub) {
-        await mark(200, `amount_mismatch_expected_${plan.amountRub}`);
+      if (!Number.isFinite(got) || Math.round(got) !== quote.amountRub) {
+        await mark(200, `amount_mismatch_expected_${quote.amountRub}`);
         return { httpStatus: 200, message: "amount_mismatch" };
       }
     }
 
-    const until = addDaysUtc(new Date(), 30);
+    if (orderAmountRub != null && orderAmountRub !== quote.amountRub) {
+      await mark(200, "order_amount_mismatch");
+      return { httpStatus: 200, message: "order_amount_mismatch" };
+    }
+
+    const until = addDaysUtc(new Date(), accessValidDaysForBillingPeriod(billingPeriod));
 
     await db.transaction(async (tx) => {
       if (typeof orderId === "string" && orderId.length > 0) {
@@ -183,7 +239,13 @@ export async function processYookassaWebhook(
             yookassaPaymentId: paymentId,
             updatedAt: new Date(),
           })
-          .where(and(eq(trainlyOrders.id, orderId), eq(trainlyOrders.trainerId, trainerId)));
+          .where(
+            and(
+              eq(trainlyOrders.id, orderId),
+              eq(trainlyOrders.trainerId, trainerId),
+              eq(trainlyOrders.status, "pending"),
+            ),
+          );
       }
 
       await tx
@@ -191,7 +253,7 @@ export async function processYookassaWebhook(
         .values({
           trainerId,
           accessStatus: "active",
-          planCode: planCodeRaw,
+          planCode: planSlug,
           validUntil: until,
           lastYookassaPaymentId: paymentId,
           updatedAt: new Date(),
@@ -200,7 +262,7 @@ export async function processYookassaWebhook(
           target: trainerProductAccess.trainerId,
           set: {
             accessStatus: "active",
-            planCode: planCodeRaw,
+            planCode: planSlug,
             validUntil: until,
             lastYookassaPaymentId: paymentId,
             updatedAt: new Date(),

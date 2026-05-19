@@ -14,6 +14,8 @@
 
 ## Ручная проверка на staging
 
-1. Настроить `TRAINLY_YOOKASSA_WEBHOOK_SECRET` и при необходимости `YOOKASSA_*` для верификации через API.
-2. Отправить одно и то же JSON-тело `payment.succeeded` дважды (например через `curl`).
-3. Убедиться: второй ответ `duplicate`, в `trainer_product_access` одно обновление на период.
+1. Настроить `TRAINLY_YOOKASSA_WEBHOOK_SECRET` и `YOOKASSA_SHOP_ID` / `YOOKASSA_SECRET_KEY` (в production верификация платежа через API обязательна).
+2. В production query-параметр `trainly_webhook_secret` **не принимается** — только заголовок `X-Trainly-Yookassa-Secret`.
+3. В production в метаданных платежа обязателен `trainly_order_id`; заказ проверяется по сумме, тарифу и `yookassa_payment_id`.
+4. Отправить одно и то же JSON-тело `payment.succeeded` дважды (например через `curl`).
+5. Убедиться: второй ответ `duplicate`, в `trainer_product_access` одно обновление на период.

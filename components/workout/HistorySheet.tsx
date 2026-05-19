@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { ReactElement } from "react";
 import { WorkoutSheetFrame } from "@/components/workout/WorkoutSheetFrame";
 import type { ExerciseHistoryDemo } from "@/lib/mock/workoutDemo";
@@ -59,6 +60,16 @@ export function HistorySheet({
               <p className="text-[10px] font-semibold uppercase tracking-wide text-[var(--tg-muted)]">Комментарий</p>
               <p className="mt-1 text-xs text-[var(--tg-text)]">{history.lastComment}</p>
             </section>
+          ) : null}
+
+          {history.lastJournalEntryId ? (
+            <Link
+              href={`/workouts/${encodeURIComponent(history.lastJournalEntryId)}`}
+              prefetch={false}
+              className="app-btn block w-full rounded-xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] py-3 text-center text-sm font-semibold text-[var(--text-primary)]"
+            >
+              Открыть в журнале
+            </Link>
           ) : null}
 
           {history.insertTemplate.length > 0 ? (

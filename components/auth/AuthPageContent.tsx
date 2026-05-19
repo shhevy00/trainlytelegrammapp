@@ -34,6 +34,8 @@ export function AuthPageContent({
   const { enterDemoAuth } = useMockApp();
   const [telegramBusy, setTelegramBusy] = useState(false);
   const [telegramManualError, setTelegramManualError] = useState<string | null>(null);
+  const [devLoginBusy, setDevLoginBusy] = useState(false);
+  const [devLoginError, setDevLoginError] = useState<string | null>(null);
 
   const overviewSkipHref = returnTo ?? "/overview";
 
@@ -43,12 +45,19 @@ export function AuthPageContent({
   };
 
   const onDevPostgresLogin = useCallback(async (): Promise<void> => {
+    if (devLoginBusy) return;
+    setDevLoginBusy(true);
+    setDevLoginError(null);
     const res = await enterDevTrainerSessionAction();
-    if (!res.ok) return;
+    setDevLoginBusy(false);
+    if (!res.ok) {
+      setDevLoginError(res.error);
+      return;
+    }
     const dest = returnTo ?? "/overview";
     router.refresh();
     router.push(dest);
-  }, [returnTo, router]);
+  }, [devLoginBusy, returnTo, router]);
 
   const onTelegramLogin = useCallback(async (): Promise<void> => {
     const initData = window.Telegram?.WebApp?.initData;
@@ -132,13 +141,21 @@ export function AuthPageContent({
           </p>
         ) : null}
         {showDevPostgresLogin ? (
-          <button
-            type="button"
-            onClick={() => void onDevPostgresLogin()}
-            className="app-btn w-full rounded-2xl border border-[color:var(--border-strong)] bg-[color:color-mix(in_srgb,var(--bg-page),transparent_30%)] px-4 py-3.5 text-center text-[15px] font-semibold text-[var(--text-primary)]"
-          >
-            Dev: войти (PostgreSQL + cookie)
-          </button>
+          <>
+            <button
+              type="button"
+              disabled={devLoginBusy}
+              onClick={() => void onDevPostgresLogin()}
+              className="app-btn w-full rounded-2xl border border-[color:var(--border-strong)] bg-[color:color-mix(in_srgb,var(--bg-page),transparent_30%)] px-4 py-3.5 text-center text-[15px] font-semibold text-[var(--text-primary)] disabled:opacity-60"
+            >
+              {devLoginBusy ? "Подключение к БД…" : "Dev: войти (PostgreSQL + cookie)"}
+            </button>
+            {devLoginError ? (
+              <p className="rounded-xl border border-[color:color-mix(in_srgb,var(--danger),transparent_55%)] bg-[color:color-mix(in_srgb,var(--danger),transparent_92%)] px-3 py-2 text-xs leading-relaxed text-[var(--danger)]">
+                {devLoginError}
+              </p>
+            ) : null}
+          </>
         ) : null}
         {!postgresNoSession ? (
           <button

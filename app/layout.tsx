@@ -1,8 +1,23 @@
 import type { Metadata, Viewport } from "next";
+import { Manrope, Sora } from "next/font/google";
 import type { ReactElement, ReactNode } from "react";
 import "./globals.css";
 import { TrainlyAppShell } from "@/components/shell/TrainlyAppShell";
 import { TelegramMiniAppBootstrap } from "@/components/telegram/TelegramMiniAppBootstrap";
+
+const manrope = Manrope({
+  subsets: ["latin", "cyrillic"],
+  weight: ["500", "600", "700"],
+  variable: "--font-manrope",
+  display: "swap",
+});
+
+const sora = Sora({
+  subsets: ["latin"],
+  weight: ["600", "700"],
+  variable: "--font-sora",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Trainly",
@@ -24,20 +39,10 @@ export default function RootLayout({
   return (
     <html
       lang="ru"
-      className="h-full overflow-hidden"
+      className={`${manrope.variable} ${sora.variable} h-full overflow-hidden`}
       suppressHydrationWarning
     >
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        {/* eslint-disable-next-line @next/next/no-page-custom-font -- глобальные Manrope/Sora без next/font/google */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Sora:wght@600;700&display=swap"
-          rel="stylesheet"
-        />
-      </head>
-      <body className="h-full min-h-dvh overflow-hidden antialiased" suppressHydrationWarning>
-        {/* Telegram SDK подключается только в TelegramMiniAppBootstrap (useEffect), после гидрации */}
+      <body className="h-full min-h-dvh overflow-hidden antialiased font-sans" suppressHydrationWarning>
         <TelegramMiniAppBootstrap />
         <TrainlyAppShell>{children}</TrainlyAppShell>
       </body>

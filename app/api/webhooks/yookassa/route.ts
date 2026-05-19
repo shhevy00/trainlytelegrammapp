@@ -4,6 +4,7 @@ import { processYookassaWebhook } from "@/lib/server/yookassaWebhook";
 function verifyWebhookSecret(req: Request, secret: string): boolean {
   const header = req.headers.get("x-trainly-yookassa-secret");
   if (header === secret) return true;
+  if (process.env.NODE_ENV === "production") return false;
   const allowQuery = process.env.TRAINLY_YOOKASSA_WEBHOOK_ALLOW_QUERY_SECRET === "true";
   if (!allowQuery) return false;
   const url = new URL(req.url);

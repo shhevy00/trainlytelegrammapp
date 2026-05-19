@@ -1,16 +1,37 @@
 import Link from "next/link";
 import type { ReactElement, ReactNode } from "react";
+import type { PlanPriceUi } from "@/lib/billing/planDefinitions";
 
 const iconSvgCls = "h-[1.35rem] w-[1.35rem] shrink-0 text-current";
 
-const checkIcon = (
-  <svg className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand-solid)]" viewBox="0 0 24 24" fill="none" aria-hidden>
-    <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
+function parsePriceDisplay(priceLine: string): { amount: string; period: string | null } {
+  const slash = priceLine.indexOf("/");
+  if (slash === -1) return { amount: priceLine.trim(), period: null };
+  return {
+    amount: priceLine.slice(0, slash).trim(),
+    period: priceLine.slice(slash + 1).trim(),
+  };
+}
 
-/** Иконка Trial — звезда «без риска». */
-export function PlanIconTrial(): ReactElement {
+function CheckIcon(): ReactElement {
+  return (
+    <span className="billing-plan-check" aria-hidden>
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
+
+function CtaArrow(): ReactElement {
+  return (
+    <svg className="billing-plan-cta-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function PlanIconFree(): ReactElement {
   return (
     <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
@@ -23,16 +44,10 @@ export function PlanIconTrial(): ReactElement {
   );
 }
 
-/** Иконка Start — столбики / график. */
 export function PlanIconStart(): ReactElement {
   return (
     <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path
-        d="M5 19V12M10 19V9M15 19v-5.5M20 19V6"
-        stroke="currentColor"
-        strokeWidth="1.65"
-        strokeLinecap="round"
-      />
+      <path d="M5 19V12M10 19V9M15 19v-5.5M20 19V6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
       <path
         d="M5.5 10.5L9 13l3.2-3.8 2.8 2.5"
         stroke="currentColor"
@@ -44,7 +59,6 @@ export function PlanIconStart(): ReactElement {
   );
 }
 
-/** Иконка Pro — корона. */
 export function PlanIconPro(): ReactElement {
   return (
     <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -59,8 +73,7 @@ export function PlanIconPro(): ReactElement {
   );
 }
 
-/** Иконка Max — ракета. */
-export function PlanIconMax(): ReactElement {
+export function PlanIconExpert(): ReactElement {
   return (
     <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
       <path
@@ -80,136 +93,159 @@ export function PlanIconMax(): ReactElement {
   );
 }
 
-type PlanCardVariant = "hero" | "secondary";
+export const PlanIconMax = PlanIconExpert;
+export const PlanIconTrial = PlanIconFree;
 
-function IconBox({ children, variant }: { children: ReactNode; variant: PlanCardVariant }): ReactElement {
-  const base =
-    "flex h-11 w-11 min-h-[2.75rem] min-w-[2.75rem] shrink-0 items-center justify-center rounded-xl border backdrop-blur-sm";
-  const byVariant =
-    variant === "hero"
-      ? "border-[color:color-mix(in_srgb,var(--brand-solid),transparent_38%)] bg-[color:color-mix(in_srgb,var(--brand-solid),transparent_86%)] text-[var(--brand-solid)] shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]"
-      : "border-[color:var(--border-violet-soft)] bg-[color:color-mix(in_srgb,var(--tg-bg),transparent_38%)] text-[color:color-mix(in_srgb,var(--brand-solid),var(--text-secondary)_20%)]";
-
-  return <div className={`${base} ${byVariant}`}>{children}</div>;
+export function PlanIconStudio(): ReactElement {
+  return (
+    <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 20V9l8-4 8 4v11M4 20h16M9 20v-5h6v5"
+        stroke="currentColor"
+        strokeWidth="1.65"
+        strokeLinejoin="round"
+      />
+      <path d="M9 9h6M9 13h6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
+    </svg>
+  );
 }
 
+type PlanCardVariant = "hero" | "secondary";
+
 export interface PricingPlanCardProps {
+  planId: string;
   icon: ReactNode;
   title: string;
-  priceLine: string;
+  /** Статичная строка (Studio) или из getPlanPriceUi для платных тарифов. */
+  priceLine?: string;
+  priceUi?: PlanPriceUi;
+  limitLine: string;
+  tagline: string;
+  description?: string;
+  featuresIntro?: string;
   badgeLabel?: string;
-  helperLine?: string;
   features: readonly string[];
   ctaLabel: string;
   variant: PlanCardVariant;
-  /** Ссылка на оплату/чекаут; не используется вместе с `ctaOnClick`. */
+  featured?: boolean;
+  /** Витрина /billing/plans: tagline, компактный список, без дубля годовой цены. */
+  showcase?: boolean;
   ctaHref?: string;
-  /** Действие без перехода на checkout (например Trial). */
   ctaOnClick?: () => void;
 }
 
 export function PricingPlanCard({
+  planId,
   icon,
   title,
   priceLine,
+  priceUi,
+  limitLine,
+  tagline,
+  description,
+  featuresIntro = "Входит",
   badgeLabel,
-  helperLine,
   features,
   ctaLabel,
   variant,
+  featured = false,
+  showcase = false,
   ctaHref,
   ctaOnClick,
 }: PricingPlanCardProps): ReactElement {
-  const isHero = variant === "hero";
+  const isHero = variant === "hero" || featured;
+  const staticPrice = priceLine != null ? parsePriceDisplay(priceLine) : null;
+  const amount = priceUi?.amount ?? staticPrice?.amount ?? "";
+  const period = priceUi?.period ?? staticPrice?.period ?? null;
+  const altLine = showcase ? null : (priceUi?.altLine ?? null);
+  const chargeLine = priceUi?.chargeLine ?? null;
+  const showTagline = tagline.length > 0;
+  const showDescription =
+    description != null && description.length > 0 && (!showcase || featured);
+  const featuresDense = showcase && !featured;
 
-  const ctaBase =
-    "app-btn cursor-pointer flex min-h-[50px] w-full min-w-0 max-w-full items-center justify-center rounded-2xl px-4 py-3.5 text-center text-[15px] font-bold leading-tight tracking-tight";
-
-  const ctaHero = `${ctaBase} bg-brand-gradient text-white shadow-[0_10px_32px_rgba(168,85,247,0.42)] ring-1 ring-[color:color-mix(in_srgb,var(--brand-solid),transparent_55%)]`;
-
-  const ctaSecondary = `${ctaBase} border border-[color:var(--border-strong)] bg-[color:color-mix(in_srgb,var(--tg-bg),transparent_14%)] font-semibold text-[var(--text-primary)] shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]`;
-
-  const ctaClass = isHero ? ctaHero : ctaSecondary;
-
-  const headerBlock = (
-    <div className="flex w-full min-w-0 max-w-full items-start gap-3">
-      <IconBox variant={variant}>{icon}</IconBox>
-      <div className="min-w-0 flex-1 basis-0 max-w-full overflow-hidden pt-0.5">
-        <div className="flex min-w-0 max-w-full flex-col gap-1.5">
-          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-x-2 gap-y-1">
-            <h2 className="min-w-0 max-w-full font-display text-lg font-bold tracking-tight text-[var(--text-primary)] sm:text-xl">
-              {title}
-            </h2>
-            {badgeLabel ? (
-              <span className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border border-[color:var(--border-violet-soft)] bg-[color:color-mix(in_srgb,var(--brand-solid),transparent_86%)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--text-primary)] sm:text-xs">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden className="shrink-0">
-                  <path d="M12 2l2.4 7.4h7.6l-6 4.6 2.3 7-6-4.5-6 4.5 2.3-7-6-4.6h7.6z" />
-                </svg>
-                <span className="min-w-0 truncate">{badgeLabel}</span>
-              </span>
-            ) : null}
-          </div>
-          <p className="max-w-full text-base font-semibold tabular-nums text-[var(--text-primary)] sm:text-lg">{priceLine}</p>
-          {helperLine ? (
-            <p className="max-w-full text-[13px] leading-snug text-[var(--text-secondary)] sm:text-sm">{helperLine}</p>
-          ) : null}
-        </div>
-      </div>
-    </div>
+  const ctaInner = (
+    <>
+      <span>{ctaLabel}</span>
+      <CtaArrow />
+    </>
   );
+
+  const ctaNode =
+    ctaOnClick != null ? (
+      <button type="button" onClick={ctaOnClick} className="billing-plan-cta">
+        {ctaInner}
+      </button>
+    ) : (
+      <Link href={ctaHref ?? "/billing/plans"} prefetch={false} className="billing-plan-cta">
+        {ctaInner}
+      </Link>
+    );
 
   const featuresBlock = (
-    <ul className="flex w-full min-w-0 max-w-full flex-col gap-2.5 pt-1">
-      {features.map((line) => (
-        <li key={line} className="flex w-full min-w-0 max-w-full gap-2.5 text-sm leading-snug text-[var(--text-secondary)]">
-          {checkIcon}
-          <span className="min-w-0 flex-1">{line}</span>
-        </li>
-      ))}
-    </ul>
-  );
-
-  const body = (
-    <div className="relative flex w-full min-w-0 max-w-full flex-col gap-5">
-      {headerBlock}
-      {featuresBlock}
-      <div className="mt-1 w-full min-w-0 pt-0.5">
-        {ctaOnClick != null ? (
-          <button type="button" onClick={ctaOnClick} className={ctaClass}>
-            {ctaLabel}
-          </button>
-        ) : (
-          <Link href={ctaHref ?? "/billing/plans"} prefetch={false} className={ctaClass}>
-            {ctaLabel}
-          </Link>
-        )}
-      </div>
+    <div className="billing-plan-features-wrap">
+      <p className="billing-plan-features-label">{featuresIntro}</p>
+      <ul className={featuresDense ? "billing-plan-features billing-plan-features--dense" : "billing-plan-features"}>
+        {features.map((line) => (
+          <li key={line}>
+            <CheckIcon />
+            <span>{line}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
-
-  const padded = (
-    <div className="relative w-full min-w-0 overflow-hidden p-4 sm:p-5">
-      {isHero ? (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[linear-gradient(165deg,color-mix(in_srgb,var(--brand-purple),transparent_90%)_0%,transparent_45%)]"
-        />
-      ) : null}
-      <div className={isHero ? "relative" : ""}>{body}</div>
-    </div>
-  );
-
-  if (isHero) {
-    return (
-      <article className="w-full min-w-0 max-w-full rounded-[1.38rem] p-[1px] shadow-[0_0_48px_rgba(168,85,247,0.26)] [background:linear-gradient(135deg,color-mix(in_srgb,var(--brand-purple),transparent_10%),color-mix(in_srgb,var(--brand-pink),transparent_6%),color-mix(in_srgb,var(--brand-solid),transparent_14%))]">
-        <div className="rounded-[1.32rem] bg-[color:color-mix(in_srgb,var(--bg-card),transparent_5%)] backdrop-blur-md">{padded}</div>
-      </article>
-    );
-  }
 
   return (
-    <article className="w-full min-w-0 max-w-full rounded-[1.25rem] border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--bg-card),transparent_22%)] shadow-[0_10px_36px_rgba(0,0,0,0.28)] backdrop-blur-md">
-      {padded}
+    <article
+      data-plan-id={planId}
+      className={[
+        "billing-plan-card",
+        "trainly-surface-card",
+        isHero ? "billing-plan-card--hero" : "billing-plan-card--standard",
+        featured ? "billing-plan-card--featured" : "",
+        showcase ? "billing-plan-card--showcase" : "",
+        planId === "studio" ? "billing-plan-card--studio" : "",
+        planId === "free" ? "billing-plan-card--free" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      {featured ? (
+        <div className="billing-plan-ribbon" aria-hidden>
+          <span>Рекомендуем</span>
+        </div>
+      ) : null}
+
+      <div className="billing-plan-card-inner">
+        <div className="billing-plan-card-glow" aria-hidden />
+
+        <header className="billing-plan-head">
+          <div className="billing-plan-icon">{icon}</div>
+          <div className="billing-plan-head-copy">
+            <div className="billing-plan-title-row">
+              <h2 className="billing-plan-title">{title}</h2>
+              {badgeLabel ? <span className="billing-plan-badge">{badgeLabel}</span> : null}
+            </div>
+            <p className="billing-plan-limit">{limitLine}</p>
+          </div>
+        </header>
+
+        <div className="billing-plan-price-block">
+          <p className="billing-plan-price">
+            <span className="billing-plan-price-amount">{amount}</span>
+            {period ? <span className="billing-plan-price-period">/ {period}</span> : null}
+          </p>
+          {altLine ? <p className="billing-plan-price-alt">{altLine}</p> : null}
+          {chargeLine ? <p className="billing-plan-price-charge">{chargeLine}</p> : null}
+          {showTagline ? <p className="billing-plan-tagline">{tagline}</p> : null}
+          {showDescription ? <p className="billing-plan-description">{description}</p> : null}
+        </div>
+
+        {featuresBlock}
+
+        <div className="billing-plan-cta-wrap">{ctaNode}</div>
+      </div>
     </article>
   );
 }

@@ -10,10 +10,12 @@ interface MoreSheetProps {
   onClose: () => void;
   exercise: WorkoutExercise | null;
   onExercisePatch: (patch: Partial<WorkoutExercise>) => void;
+  onOpenHistory: () => void;
   onSkipExercise: () => void;
   onDeleteExercise: () => void;
   onAddDropSet: () => void;
   onChangeSetType: (rowId: string, type: WorkoutSetType) => void;
+  onOpenReplace?: () => void;
 }
 
 const SET_TYPE_LABELS: Record<WorkoutSetType, string> = {
@@ -42,10 +44,12 @@ export function MoreSheet({
   onClose,
   exercise,
   onExercisePatch,
+  onOpenHistory,
   onSkipExercise,
   onDeleteExercise,
   onAddDropSet,
   onChangeSetType,
+  onOpenReplace,
 }: MoreSheetProps): ReactElement | null {
   const [step, setStep] = useState<Step>("menu");
   const [rowForType, setRowForType] = useState<string | null>(null);
@@ -83,7 +87,31 @@ export function MoreSheet({
 
           <button
             type="button"
-            className="rounded-xl border border-[color:var(--border-soft)] bg-[color:color-mix(in_srgb,var(--tg-bg),transparent_10%)] px-3 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]"
+            className="rounded-xl border border-[color:var(--border-soft)] bg-[var(--bg-card-elevated)] px-3 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]"
+            onClick={() => {
+              onOpenHistory();
+              resetAndClose();
+            }}
+          >
+            История упражнения
+          </button>
+
+          {onOpenReplace ? (
+            <button
+              type="button"
+              className="rounded-xl border border-[color:var(--border-soft)] bg-[var(--bg-card-elevated)] px-3 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]"
+              onClick={() => {
+                onOpenReplace();
+                resetAndClose();
+              }}
+            >
+              Заменить упражнение
+            </button>
+          ) : null}
+
+          <button
+            type="button"
+            className="rounded-xl border border-[color:var(--border-soft)] bg-[var(--bg-card-elevated)] px-3 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]"
             onClick={() => setStep("pickRow")}
           >
             Сменить тип подхода

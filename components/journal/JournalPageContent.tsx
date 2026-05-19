@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useMemo, type ReactElement } from "react";
 import { Card } from "@/components/ui/card";
 import { formatJournalDayLabel, formatJournalTime } from "@/lib/mock/journalSeed";
+import { ScreenQuickBar } from "@/components/shell/ScreenQuickBar";
+import { ProductAccessPaywall } from "@/components/shell/ProductAccessPaywall";
+import type { TrainlyDataSource } from "@/lib/config/dataSource";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
+import { QUICK_ACTIONS_FOR_SCREEN } from "@/lib/navigation/quickActions";
 import type { JournalCompletedWorkout, JournalEntry } from "@/lib/types";
 
 function dayBucketKey(ms: number): string {
@@ -39,7 +43,7 @@ function groupByDay(entries: JournalEntry[]): Map<string, JournalEntry[]> {
   return map;
 }
 
-export function JournalPageContent(): ReactElement {
+export function JournalPageContent({ trainlyDataMode }: { trainlyDataMode: TrainlyDataSource }): ReactElement {
   const { journalEntries } = useMockApp();
 
   const sorted = useMemo(
@@ -62,14 +66,18 @@ export function JournalPageContent(): ReactElement {
         <p className="mt-1 text-sm text-[var(--tg-muted)]">Завершённые тренировки и заметки по датам.</p>
       </header>
 
+      <ProductAccessPaywall trainlyDataMode={trainlyDataMode} />
+
+      <ScreenQuickBar actionIds={QUICK_ACTIONS_FOR_SCREEN.journal} />
+
       {sorted.length === 0 ? (
-        <Card className="flex flex-col gap-4">
+        <Card className="trainly-surface-card flex flex-col gap-4">
           <div>
             <p className="font-medium text-[var(--text-primary)]">В журнале пока нет тренировок.</p>
             <p className="mt-1 text-sm text-[var(--tg-muted)]">Здесь появятся завершённые занятия и заметки.</p>
           </div>
           <Link
-            href="/start-workout"
+            href="/start-workout?mode=quick"
             className="app-btn min-h-[44px] rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-center text-[15px] font-semibold text-white shadow-app-primary"
             prefetch={false}
           >
@@ -91,7 +99,7 @@ export function JournalPageContent(): ReactElement {
                 {list.map((entry) => (
                   <li key={entry.id}>
                     <Link href={`/workouts/${entry.id}`} prefetch={false} className="block">
-                      <Card className="transition hover:border-[color:color-mix(in_srgb,var(--brand-solid),transparent_50%)]">
+                      <Card className="trainly-surface-card transition hover:border-[color:color-mix(in_srgb,var(--brand-solid),transparent_50%)]">
                         <div className="flex items-start justify-between gap-2">
                           <div>
                             <p className="text-xs text-[var(--tg-muted)]">{formatJournalTime(entry.createdAtMs)}</p>

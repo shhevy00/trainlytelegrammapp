@@ -2,17 +2,15 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import type { WorkoutSessionState } from "@/lib/workout/types";
 import { Card } from "@/components/ui/card";
 import { coachClientSessionsBalanceShortRu } from "@/lib/coach/paidSessions";
 import type { MockScheduleItem } from "@/lib/mock/data";
 import { getRecommendedAction, type RecommendedKind } from "@/lib/mock/recommendedAction";
-import { ContextualAiHelper } from "@/components/ai/ContextualAiHelper";
-import { buildPreWorkoutFacts } from "@/lib/ai/ruleFacts";
-import { buildRememberBlock } from "@/lib/mock/rememberBlock";
 import { createEmptyWorkoutSessionForClient } from "@/lib/mock/startWorkoutSession";
 import { useMockApp } from "@/lib/mock/MockAppProvider";
-import { buildReferenceHintsByExerciseName, buildRepeatSessionFromSavedWorkout } from "@/lib/workout/repeatFromJournal";
+import { buildRepeatSessionFromSavedWorkout } from "@/lib/workout/repeatFromJournal";
 import type { WorkoutTemplate } from "@/lib/workout/templates";
 import type { JournalCompletedWorkout } from "@/lib/types";
 
@@ -61,10 +59,10 @@ function StartWorkoutFlowInner({
     getLatestCompletedWorkoutWithStructure,
     getScheduleItemById,
     scheduleItems,
-    getCoachQuickNotesForClient,
     getTemplatesForClient,
     getTemplateById,
     createWorkoutBootstrapFromTemplate,
+    loadWorkoutDraft,
   } = useMockApp();
 
   const urlClientId = useMemo(() => {
@@ -78,21 +76,46 @@ function StartWorkoutFlowInner({
   const [pickerClientId, setPickerClientId] = useState<string | null>(null);
   const selectedClientId = pickerClientId ?? urlClientId;
 
-  const [debtAcknowledged, setDebtAcknowledged] = useState(false);
-
   const [linkNearbyChoice, setLinkNearbyChoice] = useState<null | "linked" | "separate">(null);
   const [templateStartError, setTemplateStartError] = useState<string | null>(null);
   const [plannedSlotTemplateError, setPlannedSlotTemplateError] = useState<string | null>(null);
+  const [resumeDraft, setResumeDraft] = useState<{
+    workoutId: string;
+    session: WorkoutSessionState;
+    clientName: string;
+  } | null>(null);
+
+  const refreshResumeDraft = useCallback(
+    async (clientId: string | null): Promise<void> => {
+      if (clientId == null) {
+        setResumeDraft(null);
+        return;
+      }
+      const draft = await loadWorkoutDraft(clientId);
+      if (draft == null) {
+        setResumeDraft(null);
+        return;
+      }
+      setResumeDraft({
+        workoutId: draft.workoutId,
+        session: { ...draft.session, clientName: draft.clientName },
+        clientName: draft.clientName,
+      });
+    },
+    [loadWorkoutDraft],
+  );
+
+  useEffect(() => {
+    if (!selectedClientId) return;
+    queueMicrotask(() => {
+      void refreshResumeDraft(selectedClientId);
+    });
+  }, [selectedClientId, refreshResumeDraft]);
 
   const selectedClient = useMemo(
     () => (selectedClientId ? clients.find((c) => c.id === selectedClientId) : undefined),
     [clients, selectedClientId],
   );
-
-  const coachNotesForSelected = useMemo(() => {
-    if (!selectedClientId) return [];
-    return getCoachQuickNotesForClient(selectedClientId);
-  }, [getCoachQuickNotesForClient, selectedClientId]);
 
   const promptSlot: MockScheduleItem | undefined = useMemo(() => {
     if (scheduleItemIdParam || !selectedClientId) return undefined;
@@ -161,32 +184,6 @@ function StartWorkoutFlowInner({
     return getRecommendedAction(selectedClient);
   }, [selectedClient]);
 
-  const rememberPreview = useMemo(() => {
-    if (!selectedClient) return "";
-    return buildRememberBlock(selectedClient, { debtAcknowledged }, coachNotesForSelected);
-  }, [selectedClient, debtAcknowledged, coachNotesForSelected]);
-
-  const rememberFactLines = useMemo(
-    () => rememberPreview.split(" · ").map((s) => s.trim()).filter(Boolean),
-    [rememberPreview],
-  );
-
-  const preWorkoutAiFacts = useMemo(() => {
-    if (!selectedClient) return [];
-    return buildPreWorkoutFacts({
-      client: selectedClient,
-      rememberFactsLines: rememberFactLines,
-    });
-  }, [selectedClient, rememberFactLines]);
-
-  const needsSessionAck = selectedClient !== undefined && selectedClient.remainingSessions <= 0;
-  const canStartWithSessions =
-    !selectedClient || selectedClient.remainingSessions > 0 || debtAcknowledged;
-  const sessionDebtOpts =
-    selectedClient && selectedClient.remainingSessions <= 0 && debtAcknowledged
-      ? { debtAcknowledged: true as const }
-      : undefined;
-
   const goLogger = useCallback(
     (bootstrap: Parameters<typeof queueWorkoutBootstrap>[0]): void => {
       queueWorkoutBootstrap(bootstrap);
@@ -201,27 +198,36 @@ function StartWorkoutFlowInner({
       selectedClient,
       `${plannedContext.title} · ${plannedContext.time}`,
       plannedContext.id,
-      sessionDebtOpts,
     );
     goLogger({
       session,
       referenceHintsByExerciseName: {},
-      rememberBlock: buildRememberBlock(selectedClient, { debtAcknowledged }, coachNotesForSelected),
+      rememberBlock: "",
       startSource: "schedule",
     });
   };
 
   const onRepeatPrevious = (): void => {
     if (!selectedClient || !latestStructured) return;
-    const base = buildRepeatSessionFromSavedWorkout(latestStructured, sessionDebtOpts);
+    const base = buildRepeatSessionFromSavedWorkout(latestStructured);
     const session =
       resolvedScheduleItemId !== undefined ? { ...base, scheduleItemId: resolvedScheduleItemId } : base;
-    const referenceHintsByExerciseName = buildReferenceHintsByExerciseName(latestStructured.exercises);
     goLogger({
       session,
-      referenceHintsByExerciseName,
-      rememberBlock: buildRememberBlock(selectedClient, { debtAcknowledged }, coachNotesForSelected),
+      referenceHintsByExerciseName: {},
+      rememberBlock: "",
       startSource: "repeat",
+    });
+  };
+
+  const onResumeDraft = (): void => {
+    if (!resumeDraft || !selectedClient) return;
+    goLogger({
+      session: resumeDraft.session,
+      referenceHintsByExerciseName: {},
+      rememberBlock: "",
+      startSource: "empty",
+      persistedWorkoutId: resumeDraft.workoutId,
     });
   };
 
@@ -231,12 +237,11 @@ function StartWorkoutFlowInner({
       selectedClient,
       "Новая тренировка",
       resolvedScheduleItemId,
-      sessionDebtOpts,
     );
     goLogger({
       session,
       referenceHintsByExerciseName: {},
-      rememberBlock: buildRememberBlock(selectedClient, { debtAcknowledged }, coachNotesForSelected),
+      rememberBlock: "",
       startSource: resolvedScheduleItemId !== undefined ? "schedule" : "empty",
     });
   };
@@ -249,7 +254,6 @@ function StartWorkoutFlowInner({
       templateId: plannedContext.templateId,
       ...(resolvedScheduleItemId !== undefined ? { scheduleItemId: resolvedScheduleItemId } : {}),
       titleOverride: plannedContext.title.trim() || plannedContext.templateName,
-      ...(sessionDebtOpts ?? {}),
     });
     if (!res.ok) {
       setPlannedSlotTemplateError(res.error);
@@ -265,7 +269,6 @@ function StartWorkoutFlowInner({
       clientId: selectedClient.id,
       templateId: template.id,
       ...(resolvedScheduleItemId !== undefined ? { scheduleItemId: resolvedScheduleItemId } : {}),
-      ...(sessionDebtOpts ?? {}),
     });
     if (!res.ok) {
       setTemplateStartError(res.error);
@@ -292,6 +295,22 @@ function StartWorkoutFlowInner({
         </p>
       </header>
 
+      {resumeDraft && selectedClient ? (
+        <Card className="border-[color:color-mix(in_srgb,var(--brand-solid),transparent_55%)] p-3">
+          <p className="text-sm font-semibold text-[var(--text-primary)]">Незавершённая тренировка</p>
+          <p className="mt-1 text-xs text-[var(--tg-muted)]">
+            {resumeDraft.session.title} · {resumeDraft.clientName}
+          </p>
+          <button
+            type="button"
+            onClick={onResumeDraft}
+            className="app-btn mt-3 w-full rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-sm font-semibold text-white shadow-app-primary"
+          >
+            Продолжить
+          </button>
+        </Card>
+      ) : null}
+
       <Card className="p-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-[var(--tg-muted)]">Клиент</p>
         <div className="app-scroll mt-2 max-h-52 space-y-1.5 overflow-y-auto pr-0.5">
@@ -303,10 +322,10 @@ function StartWorkoutFlowInner({
                 type="button"
                 onClick={() => {
                   setPickerClientId(c.id);
-                  setDebtAcknowledged(false);
                   setLinkNearbyChoice(null);
                   setTemplateStartError(null);
                   setPlannedSlotTemplateError(null);
+                  void refreshResumeDraft(c.id);
                 }}
                 className={`flex w-full min-h-[44px] items-center rounded-xl border px-3 py-2.5 text-left text-[15px] font-semibold transition ${
                   active
@@ -405,59 +424,16 @@ function StartWorkoutFlowInner({
             ) : (
               <p className="mt-1 text-xs text-[var(--tg-muted)]">В журнале пока нет завершённых тренировок.</p>
             )}
-            {rememberFactLines.length > 0 ? (
-              <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[var(--tg-muted)]">Что учесть</span>
-                {rememberFactLines.slice(0, 6).map((line, i) => (
-                  <span
-                    key={`${i}-${line.slice(0, 24)}`}
-                    className="max-w-full truncate rounded-full border border-[color:var(--border-soft)] bg-[var(--tg-bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--text-primary)]"
-                  >
-                    {line.length > 40 ? `${line.slice(0, 39)}…` : line}
-                  </span>
-                ))}
-                {rememberFactLines.length > 6 ? (
-                  <span className="text-[11px] font-semibold text-[var(--tg-accent)]">+{rememberFactLines.length - 6}</span>
-                ) : null}
-              </div>
+            {selectedClient.remainingSessions <= 0 ? (
+              <p className="mt-3 text-xs leading-relaxed text-[var(--text-muted)]">
+                Баланс занятий нулевой или отрицательный.{" "}
+                <Link href={addPaymentHref} prefetch={false} className="font-semibold text-[var(--brand-solid)] underline-offset-2">
+                  Добавить оплату
+                </Link>{" "}
+                — по желанию; тренировку можно начать в любом случае.
+              </p>
             ) : null}
           </Card>
-
-          {needsSessionAck ? (
-            <Card className="border border-[color:color-mix(in_srgb,var(--warning),transparent_55%)] bg-[color:color-mix(in_srgb,var(--warning),transparent_90%)]">
-              <p className="text-sm font-semibold text-[var(--warning)]">
-                {selectedClient.remainingSessions < 0
-                  ? `Долг: ${Math.abs(selectedClient.remainingSessions)} занятий.`
-                  : "У этого клиента 0 оплаченных занятий."}
-              </p>
-              <p className="mt-2 text-sm text-[var(--tg-muted)]">
-                Можно провести тренировку в долг (остаток уйдёт в минус) или добавить оплату.
-              </p>
-              <div className="mt-3 flex flex-col gap-2">
-                <button
-                  type="button"
-                  className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary"
-                  onClick={() => setDebtAcknowledged(true)}
-                >
-                  {selectedClient.remainingSessions < 0 ? "Провести ещё в долг" : "Вести в долг"}
-                </button>
-                <Link href={addPaymentHref} prefetch={false} className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-center text-[var(--text-primary)]">
-                  Добавить оплату
-                </Link>
-              </div>
-              {debtAcknowledged ? (
-                <p className="mt-2 text-xs text-[var(--tg-muted)]">
-                  Можно начинать тренировку — при завершении спишется одно занятие (баланс может стать отрицательным).
-                </p>
-              ) : null}
-            </Card>
-          ) : null}
-
-          {needsSessionAck && !canStartWithSessions ? (
-            <p className="text-xs leading-relaxed text-[var(--warning)]">
-              Чтобы начать тренировку, подтвердите ведение в долг выше или добавьте оплату.
-            </p>
-          ) : null}
 
           <section className="flex flex-col gap-2">
             {plannedContext && plannedSlotTemplateUsable ? (
@@ -469,16 +445,14 @@ function StartWorkoutFlowInner({
                 ) : null}
                 <button
                   type="button"
-                  className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary disabled:opacity-40"
-                  disabled={!canStartWithSessions}
+                  className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary"
                   onClick={onStartFromPlannedSlotTemplate}
                 >
                   Начать по шаблону
                 </button>
                 <button
                   type="button"
-                  className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-[var(--text-primary)] disabled:opacity-40"
-                  disabled={!canStartWithSessions}
+                  className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-[var(--text-primary)]"
                   onClick={onStartPlanned}
                 >
                   Начать по записи
@@ -487,8 +461,7 @@ function StartWorkoutFlowInner({
             ) : plannedContext ? (
               <button
                 type="button"
-                className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary disabled:opacity-40"
-                disabled={!canStartWithSessions}
+                className="app-btn rounded-2xl bg-[var(--tg-accent)] px-4 py-3 text-white shadow-app-primary"
                 onClick={onStartPlanned}
               >
                 Начать по записи
@@ -499,8 +472,7 @@ function StartWorkoutFlowInner({
               <div className="flex flex-col gap-1">
                 <button
                   type="button"
-                  className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-[var(--text-primary)] disabled:opacity-40"
-                  disabled={!canStartWithSessions}
+                  className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-[var(--text-primary)]"
                   onClick={onRepeatPrevious}
                 >
                   Повторить прошлую
@@ -536,8 +508,7 @@ function StartWorkoutFlowInner({
                         </div>
                         <button
                           type="button"
-                          className="app-btn shrink-0 rounded-xl bg-[var(--tg-accent)] px-3 py-2 text-xs font-semibold text-white shadow-app-primary disabled:opacity-40"
-                          disabled={!canStartWithSessions}
+                          className="app-btn shrink-0 rounded-xl bg-[var(--tg-accent)] px-3 py-2 text-xs font-semibold text-white shadow-app-primary"
                           onClick={() => onStartFromTemplate(t)}
                         >
                           Начать
@@ -565,8 +536,7 @@ function StartWorkoutFlowInner({
 
             <button
               type="button"
-              className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-[var(--text-primary)] disabled:opacity-40"
-              disabled={!canStartWithSessions}
+              className="app-btn rounded-2xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-4 py-3 text-[var(--text-primary)]"
               onClick={onEmptyWorkout}
             >
               Новая тренировка с нуля
@@ -580,16 +550,6 @@ function StartWorkoutFlowInner({
             </p>
           ) : null}
 
-          {selectedClient ? (
-            <ContextualAiHelper
-              variant="compact"
-              heading="Подсказка перед тренировкой"
-              facts={preWorkoutAiFacts}
-              generateKind="pre_workout_hint"
-              generateLabel="Сформулировать"
-              showShorterSofter={false}
-            />
-          ) : null}
         </>
       )}
     </main>

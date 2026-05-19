@@ -1,5 +1,4 @@
 import type { MockClient, MockScheduleItem } from "@/lib/mock/data";
-import { clientAliasFromName } from "@/lib/ai/ruleFacts";
 import type { TodayScheduleRollup } from "@/lib/overview/dailyOperations";
 import { todayPendingSlotsSorted } from "@/lib/overview/dailyOperations";
 
@@ -20,12 +19,12 @@ function truncate(s: string, max: number): string {
   return `${s.slice(0, Math.max(0, max - 1))}…`;
 }
 
-/** «2 дня назад · Ноги» → «Ноги 2 дня назад» для компактной строки «прошлая». */
-function formatLastWorkoutCompact(last?: string): string | null {
+/** «2 дня назад · Ноги» → «прошлая: Ноги 2 дня назад» для чипа hero. */
+export function formatLastWorkoutCompact(last?: string): string | null {
   if (!last?.trim()) return null;
   const segs = last.split("·").map((s) => s.trim());
-  if (segs.length >= 2) return `прошлая: ${segs[1]} ${segs[0]}`;
-  return `прошлая: ${last.trim()}`;
+  if (segs.length >= 2) return `Прошлая: ${segs[0]}`;
+  return `Прошлая: ${last.trim()}`;
 }
 
 function balanceFragment(remainingSessions: number): string {
@@ -104,35 +103,4 @@ export function countLaterTodayHidden(
   const idx = today.findIndex((s) => s.id === nextSlot.id);
   const totalAfterNextOnToday = idx >= 0 ? today.length - idx - 1 : today.length;
   return Math.max(0, totalAfterNextOnToday - shownLaterCount);
-}
-
-/** Факты для панели «Перед тренировкой» (без генерации; mock). */
-export function buildOverviewAiPreparationFacts(
-  client: MockClient | undefined,
-  nextSlot: MockScheduleItem,
-  whatToRemember: string | null,
-): string[] {
-  const slotLine = `Запись: ${nextSlot.time}, «${nextSlot.title}», ${nextSlot.durationMinutes} мин.`;
-  if (!client) return [slotLine];
-
-  const alias = clientAliasFromName(client.name);
-  const lines: string[] = [`Клиент: ${alias}.`, slotLine];
-  if (whatToRemember?.trim()) lines.push(`Что учесть: ${whatToRemember.trim()}.`);
-
-  if (client.remainingSessions < 0) {
-    lines.push(`Долг занятий: ${Math.abs(client.remainingSessions)}.`);
-  } else if (client.remainingSessions === 0) {
-    lines.push("Оплаченных занятий не осталось.");
-  } else {
-    lines.push(`Осталось оплаченных занятий: ${client.remainingSessions}.`);
-  }
-
-  if (client.lastWorkoutSummary?.trim()) {
-    lines.push(`Последняя тренировка (как в профиле): ${client.lastWorkoutSummary.trim()}.`);
-  }
-  if (client.goal?.trim()) lines.push(`Цель: ${client.goal.trim()}.`);
-  if (client.limitation?.trim()) {
-    lines.push(`Ограничение (как указано): ${client.limitation.trim()}.`);
-  }
-  return lines;
 }

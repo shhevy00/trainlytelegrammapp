@@ -23,7 +23,7 @@ export function WorkoutSheetFrame({ title, subtitle, onClose, children }: Workou
         role="dialog"
         aria-modal="true"
         aria-labelledby="workout-sheet-title"
-        className="relative mx-auto max-h-[min(78vh,620px)] w-full max-w-[480px] overflow-y-auto rounded-t-2xl border border-[color:color-mix(in_srgb,var(--border-strong),transparent_40%)] bg-[color:color-mix(in_srgb,var(--bg-card-elevated),#0c0a10_35%)] px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-3 shadow-[0_-12px_40px_rgba(0,0,0,0.45)]"
+        className="relative mx-auto max-h-[min(78vh,620px)] w-full max-w-[480px] overflow-y-auto rounded-t-[var(--radius-sheet)] border border-b-0 border-[color:var(--border-strong)] bg-[var(--bg-sheet)] px-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))] pt-3 shadow-[var(--shadow-nav)]"
       >
         <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-[color:color-mix(in_srgb,var(--border-strong),transparent_20%)]" />
         <h2 id="workout-sheet-title" className="font-display text-base font-semibold tracking-tight text-[var(--text-primary)]">

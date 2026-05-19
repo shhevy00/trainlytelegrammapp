@@ -30,6 +30,7 @@ import { formatOverviewHumanDate, isoDayLocal } from "@/lib/overview/dailyOperat
 import { nextPendingSlotForClient } from "@/lib/clients/clientAttention";
 
 const TRAINLY_DEV_TELEGRAM_USER_ID = BigInt("9000000000000");
+const JOURNAL_LOAD_LIMIT = 200;
 
 function todayIsoInTrainerTz(timezone: string): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -150,7 +151,8 @@ export async function loadTrainlySnapshot(db: AppDatabase, trainerId: string): P
   const nameByClient = new Map(clientRows.map((c) => [c.id, c.name]));
 
   const [
-    { workoutRows, exerciseRows, setRows },
+    { workoutRows, exerciseRows, setRows, journalHasMore },
+    activeDraftRows,
     scheduleRows,
     paymentRows,
     noteRows,
@@ -160,6 +162,7 @@ export async function loadTrainlySnapshot(db: AppDatabase, trainerId: string): P
       workoutRows: (typeof workouts.$inferSelect)[];
       exerciseRows: (typeof workoutExercises.$inferSelect)[];
       setRows: (typeof workoutSets.$inferSelect)[];
+      journalHasMore: boolean;
     }> => {
       const wr = await db
         .select()
@@ -167,17 +170,14 @@ export async function loadTrainlySnapshot(db: AppDatabase, trainerId: string): P
         .where(
           and(
             eq(workouts.trainerId, trainerId),
-            inArray(workouts.status, [
-              "completed",
-              "completed_as_note",
-              "draft",
-              "in_progress",
-              "cancelled",
-            ]),
+            inArray(workouts.status, ["completed", "completed_as_note"]),
           ),
         )
-        .orderBy(desc(workouts.completedAt), desc(workouts.startedAt));
-      const workoutIds = wr.map((w) => w.id);
+        .orderBy(desc(workouts.completedAt), desc(workouts.startedAt))
+        .limit(JOURNAL_LOAD_LIMIT + 1);
+      const journalHasMore = wr.length > JOURNAL_LOAD_LIMIT;
+      const journalRows = journalHasMore ? wr.slice(0, JOURNAL_LOAD_LIMIT) : wr;
+      const workoutIds = journalRows.map((w) => w.id);
       const ex =
         workoutIds.length === 0
           ? []
@@ -191,8 +191,22 @@ export async function loadTrainlySnapshot(db: AppDatabase, trainerId: string): P
         exerciseIds.length === 0
           ? []
           : await db.select().from(workoutSets).where(inArray(workoutSets.workoutExerciseId, exerciseIds));
-      return { workoutRows: wr, exerciseRows: ex, setRows: sr };
+      return { workoutRows: journalRows, exerciseRows: ex, setRows: sr, journalHasMore };
     })(),
+    db
+      .select({
+        id: workouts.id,
+        clientId: workouts.clientId,
+        title: workouts.title,
+        startedAt: workouts.startedAt,
+      })
+      .from(workouts)
+      .where(
+        and(
+          eq(workouts.trainerId, trainerId),
+          inArray(workouts.status, ["draft", "in_progress"]),
+        ),
+      ),
     db
       .select()
       .from(scheduleItems)
@@ -441,17 +455,26 @@ export async function loadTrainlySnapshot(db: AppDatabase, trainerId: string): P
     };
   });
 
+  const activeWorkoutDrafts = activeDraftRows.map((d) => ({
+    workoutId: d.id,
+    clientId: d.clientId,
+    clientName: nameByClient.get(d.clientId) ?? "Клиент",
+    title: d.title,
+    startedAtMs: d.startedAt.getTime(),
+  }));
+
   return {
     serverSnapshotRevision: Date.now(),
     todayIso,
     clients: enrichedClients,
     journalEntries,
+    journalHasMore,
+    activeWorkoutDrafts,
     scheduleItems: scheduleItemsMapped,
     coachPaymentRecords,
     coachQuickNotes: coachQuickNotesMapped,
     workoutTemplates: uiTemplates,
     mockLifecycle: buildLifecycle(trainer, access, requiredLegalComplete),
-    aiCreditsTotal: Math.max(0, trainer.aiCreditsBalance),
     accessStatus:
       access?.accessStatus != null ? parseTrainerProductAccessStatus(access.accessStatus) : "demo_unlimited",
   };

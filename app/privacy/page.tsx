@@ -18,8 +18,7 @@ export default function PrivacyPage(): ReactElement {
           <li>клиентов, которых вы добавляете;</li>
           <li>тренировки, шаблоны и график;</li>
           <li>оплаты занятий клиента;</li>
-          <li>заметки;</li>
-          <li>учёт демо-подсказок в интерфейсе (без внешней нейросети в v1);</li>
+          <li>заметки.</li>
         </ul>
       </section>
 
@@ -32,14 +31,6 @@ export default function PrivacyPage(): ReactElement {
           <li>фотографии клиентов;</li>
           <li>лишние личные сведения.</li>
         </ul>
-      </section>
-
-      <section className="premium-surface min-w-0 p-4">
-        <h2 className="app-section-label">AI и приватность</h2>
-        <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-          В продакшене AI должен получать только минимальный контекст без телефонов, username, адресов и лишних персональных
-          данных.
-        </p>
       </section>
 
       <button

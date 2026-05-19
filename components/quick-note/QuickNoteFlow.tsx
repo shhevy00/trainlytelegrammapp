@@ -17,10 +17,10 @@ const NOTE_OPTIONS: { value: CoachQuickNoteType; label: string }[] = [
 
 const NOTE_EFFECT: Record<CoachQuickNoteType, string> = {
   general: "Сохранится в карточке клиента.",
-  limitation: "Появится в «Что учесть» перед тренировкой.",
+  limitation: "Сохранится как ограничение в карточке клиента.",
   payment: "Появится в оплатах и напоминаниях.",
   progress: "Попадёт в заметки прогресса.",
-  complaint: "Появится в пульсе клиента.",
+  complaint: "Попадёт в список «Внимание» у клиента.",
 };
 
 const btnPrimary =
@@ -113,7 +113,7 @@ function QuickNoteFlowInner({ initialClientId }: QuickNoteFlowInnerProps): React
         </Link>
         <h1 className="font-display text-2xl font-bold tracking-tight">Быстрая заметка</h1>
         <p className="text-sm text-[var(--tg-muted)]">
-          Тип заметки помогает в пульсе клиента, в оплатах и в прогрессе.
+          Тип заметки влияет на оплаты, прогресс и фильтр «Внимание».
         </p>
       </header>
 

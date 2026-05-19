@@ -3,6 +3,7 @@ import type { ExerciseHistoryDemo } from "@/lib/mock/workoutDemo";
 import type { WorkoutExercise, WorkoutSetRow } from "@/lib/workout/types";
 import { isoDayLocal } from "@/lib/overview/dailyOperations";
 import { isFilledSet, parseWorkoutNumber } from "@/lib/workout/calculations";
+import { formatSetReferenceLabel, SET_SUMMARY_SEP } from "@/lib/workout/formatSetDisplay";
 
 function normalizeExerciseName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
@@ -18,16 +19,10 @@ function formatExerciseLine(ex: WorkoutExercise): string {
   const parts: string[] = [];
   for (const row of ex.sets) {
     if (!isFilledSet(row)) continue;
-    const w = parseWorkoutNumber(row.weight);
-    const r = parseWorkoutNumber(row.reps);
-    const d = parseWorkoutNumber(row.durationSec);
-    if (w !== null && w > 0 && r !== null && r > 0) {
-      parts.push(`${w}×${r}`);
-    } else if (d !== null && d > 0) {
-      parts.push(`${d} с`);
-    }
+    const label = formatSetReferenceLabel(row);
+    if (label) parts.push(label.replace(/^↳\s*/, ""));
   }
-  return parts.length > 0 ? parts.join(" / ") : "—";
+  return parts.length > 0 ? parts.join(SET_SUMMARY_SEP) : "—";
 }
 
 function setTonnage(row: WorkoutSetRow): number | null {
@@ -85,7 +80,10 @@ export function buildExerciseHistoryFromJournal(
         bestTonnage = t;
         const w = parseWorkoutNumber(row.weight);
         const r = parseWorkoutNumber(row.reps);
-        if (w !== null && r !== null) bestLabel = `${w}×${r}`;
+        if (w !== null && r !== null) {
+          const fakeRow = { ...row, weight: String(w), reps: String(r) } as WorkoutSetRow;
+          bestLabel = formatSetReferenceLabel(fakeRow);
+        }
       }
     }
   }
@@ -104,5 +102,6 @@ export function buildExerciseHistoryFromJournal(
     lastThree,
     lastComment,
     insertTemplate,
+    lastJournalEntryId: latest.entry.id,
   };
 }

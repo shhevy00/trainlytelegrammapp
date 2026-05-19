@@ -11,7 +11,7 @@ import { useMockApp } from "@/lib/mock/MockAppProvider";
 
 const labelCls = "mb-1.5 block text-sm font-medium text-[var(--text-secondary)]";
 const inputCls =
-  "w-full min-w-0 rounded-xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-3 py-2.5 text-[var(--text-primary)] outline-none focus:border-[color:var(--border-violet)]";
+  "w-full min-w-0 rounded-xl border border-[color:var(--border-strong)] bg-[var(--tg-bg)] px-3 py-2.5 text-[var(--text-primary)] outline-none focus:border-[color:var(--border-strong)]";
 
 interface ProfileSetupFormProps {
   profile: MockTrainerProfile | null;

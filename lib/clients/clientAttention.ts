@@ -1,13 +1,13 @@
 import type { MockClient, MockScheduleItem } from "@/lib/mock/data";
 import type { CoachQuickNote } from "@/lib/mock/coachLedger";
 
-export const CLIENT_LIST_FILTERS = ["all", "today", "attention", "debt", "no_schedule"] as const;
+export const CLIENT_LIST_FILTERS = ["all", "today", "attention", "no_schedule"] as const;
 
 export type ClientListFilter = (typeof CLIENT_LIST_FILTERS)[number];
 
 export function parseClientListFilter(raw: string | string[] | undefined): ClientListFilter {
   const v = Array.isArray(raw) ? raw[0] : raw;
-  if (v === "today" || v === "attention" || v === "debt" || v === "no_schedule") return v;
+  if (v === "today") return "today";
   return "all";
 }
 
@@ -78,10 +78,6 @@ export function clientMatchesAttentionFilter(
   return false;
 }
 
-export function clientMatchesDebtFilter(client: MockClient): boolean {
-  return client.remainingSessions < 0;
-}
-
 export function clientMatchesNoScheduleFilter(client: MockClient): boolean {
   return !client.hasNextWorkoutScheduled;
 }
@@ -99,8 +95,6 @@ export function filterClients(
       return clients.filter((c) => clientMatchesTodayFilter(c, scheduleItems, todayIso));
     case "attention":
       return clients.filter((c) => clientMatchesAttentionFilter(c, quickNotes));
-    case "debt":
-      return clients.filter((c) => clientMatchesDebtFilter(c));
     case "no_schedule":
       return clients.filter((c) => clientMatchesNoScheduleFilter(c));
     default:

@@ -4,10 +4,23 @@ import { validateTelegramWebAppInitData } from "@/lib/auth/telegram";
 import { getDb } from "@/lib/db/server";
 import { logServerError } from "@/lib/server/logServerError";
 import { ensureTrainerForTelegramUser } from "@/lib/server/ensureTrainer";
+import { checkRateLimit, clientIpFromRequest } from "@/lib/server/rateLimit";
 
 export const runtime = "nodejs";
 
+const AUTH_RATE_LIMIT = 30;
+const AUTH_RATE_WINDOW_MS = 60_000;
+
 export async function POST(req: Request): Promise<Response> {
+  const ip = clientIpFromRequest(req);
+  const rl = checkRateLimit(`auth:telegram:${ip}`, AUTH_RATE_LIMIT, AUTH_RATE_WINDOW_MS);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const botToken = process.env.TELEGRAM_BOT_TOKEN;
   if (botToken == null || botToken.length === 0) {
     return NextResponse.json({ error: "missing_bot_token" }, { status: 500 });
