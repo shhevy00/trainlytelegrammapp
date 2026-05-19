@@ -3,6 +3,7 @@
 import type { ReactElement } from "react";
 import { WorkoutRestTimerRow } from "@/components/workout/WorkoutRestTimerRow";
 import type { RestTimerSec } from "@/lib/workout/restTimerPreference";
+import { DecorativeSvg } from "@/components/ui/DecorativeSvg";
 
 interface WorkoutStickyFooterProps {
   hideBottomNav: boolean;
@@ -17,28 +18,28 @@ interface WorkoutStickyFooterProps {
 
 function IconStructure(): ReactElement {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0 opacity-80">
+    <DecorativeSvg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 opacity-80">
       <path
         d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
         stroke="currentColor"
         strokeWidth="1.75"
         strokeLinecap="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 function IconPlus(): ReactElement {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0 opacity-80">
+    <DecorativeSvg width="18" height="18" viewBox="0 0 24 24" fill="none" className="shrink-0 opacity-80">
       <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 function IconCheck(): ReactElement {
   return (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <DecorativeSvg width="20" height="20" viewBox="0 0 24 24" fill="none" className="shrink-0">
       <path
         d="M20 6 9 17l-5-5"
         stroke="currentColor"
@@ -46,7 +47,7 @@ function IconCheck(): ReactElement {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 

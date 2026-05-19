@@ -1,15 +1,16 @@
+import { timingSafeEqualString } from "@/lib/auth/secureCompare";
 import { getDb } from "@/lib/db/server";
 import { processYookassaWebhook } from "@/lib/server/yookassaWebhook";
 
 function verifyWebhookSecret(req: Request, secret: string): boolean {
   const header = req.headers.get("x-trainly-yookassa-secret");
-  if (header === secret) return true;
+  if (header != null && timingSafeEqualString(header, secret)) return true;
   if (process.env.NODE_ENV === "production") return false;
   const allowQuery = process.env.TRAINLY_YOOKASSA_WEBHOOK_ALLOW_QUERY_SECRET === "true";
   if (!allowQuery) return false;
   const url = new URL(req.url);
   const q = url.searchParams.get("trainly_webhook_secret");
-  return q === secret;
+  return q != null && timingSafeEqualString(q, secret);
 }
 
 /**

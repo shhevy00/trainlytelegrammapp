@@ -58,15 +58,7 @@ export function useWorkoutDraftAutosave(params: {
     }, AUTOSAVE_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [
-    enabled,
-    workoutId,
-    templateId,
-    sessionSignature,
-    dirty,
-    phase,
-    saveWorkoutDraft,
-    session,
-    onSaveError,
-  ]);
+    // session намеренно не в deps: debounce по sessionSignature, не по ссылке объекта
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- autosave keyed by sessionSignature
+  }, [enabled, workoutId, templateId, sessionSignature, dirty, phase, saveWorkoutDraft, onSaveError]);
 }

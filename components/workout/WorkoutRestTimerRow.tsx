@@ -28,7 +28,8 @@ export function WorkoutRestTimerRow({
           <span className="text-xs font-bold tabular-nums text-[var(--brand-solid)]">{countdownSec} с</span>
         ) : null}
       </div>
-      <div className="grid grid-cols-4 gap-1.5" role="group" aria-label="Длительность отдыха">
+      <fieldset className="grid grid-cols-4 gap-1.5 border-0 p-0 m-0 min-w-0">
+        <legend className="sr-only">Длительность отдыха</legend>
         {REST_TIMER_OPTIONS.map((opt) => {
           const active = value === opt.value;
           return (
@@ -50,7 +51,7 @@ export function WorkoutRestTimerRow({
             </button>
           );
         })}
-      </div>
+      </fieldset>
     </div>
   );
 }

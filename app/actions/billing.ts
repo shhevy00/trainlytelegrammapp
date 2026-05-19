@@ -9,7 +9,6 @@ import {
   isPaidPlanSlug,
   parseBillingPeriodParam,
   type BillingPeriod,
-  type PaidPlanSlug,
 } from "@/lib/billing/planDefinitions";
 import { postYookassaCreatePayment } from "@/lib/server/yookassaCreatePayment";
 import { trainlyOrders } from "@/db/schema";

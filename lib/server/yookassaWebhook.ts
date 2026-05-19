@@ -6,7 +6,6 @@ import {
   normalizePaidPlanSlug,
   parseBillingPeriodParam,
   type BillingPeriod,
-  type PaidPlanSlug,
 } from "@/lib/billing/planDefinitions";
 import { billingWebhookEvents, trainlyOrders, trainerProductAccess } from "@/db/schema";
 

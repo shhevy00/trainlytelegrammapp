@@ -1,4 +1,5 @@
-import crypto from "node:crypto";
+import { timingSafeEqualHex } from "@/lib/auth/secureCompare";
+import { buildTelegramDataCheckString, signTelegramDataCheckString } from "@/lib/auth/telegramInitData";
 
 export interface TelegramAuthUser {
   id: number;
@@ -21,14 +22,9 @@ export function validateTelegramWebAppInitData(
     throw new Error("telegram_missing_hash");
   }
   params.delete("hash");
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-
-  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
-  const calculated = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
-  if (calculated !== hash) {
+  const dataCheckString = buildTelegramDataCheckString(params);
+  const calculated = signTelegramDataCheckString(dataCheckString, botToken);
+  if (!timingSafeEqualHex(calculated, hash)) {
     throw new Error("telegram_bad_hash");
   }
 

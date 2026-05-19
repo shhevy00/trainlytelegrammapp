@@ -3,7 +3,7 @@
  * Запуск: npm run test:unit
  */
 import assert from "node:assert/strict";
-import crypto from "node:crypto";
+import { buildTelegramDataCheckString, signTelegramDataCheckString } from "../lib/auth/telegramInitData";
 import { validateTelegramWebAppInitData } from "../lib/auth/telegram";
 import {
   canOverrideSubscriptionStatusInRuntime,
@@ -178,12 +178,8 @@ function makeTelegramInitData(botToken: string, userId: number, authDateSec: num
   const params = new URLSearchParams();
   params.set("user", JSON.stringify({ id: userId }));
   params.set("auth_date", String(authDateSec));
-  const dataCheckString = [...params.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([k, v]) => `${k}=${v}`)
-    .join("\n");
-  const secretKey = crypto.createHmac("sha256", "WebAppData").update(botToken).digest();
-  const hash = crypto.createHmac("sha256", secretKey).update(dataCheckString).digest("hex");
+  const dataCheckString = buildTelegramDataCheckString(params);
+  const hash = signTelegramDataCheckString(dataCheckString, botToken);
   params.set("hash", hash);
   return params.toString();
 }

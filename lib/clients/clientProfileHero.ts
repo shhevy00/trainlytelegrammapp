@@ -5,11 +5,7 @@ import {
 } from "@/lib/coach/paidSessions";
 import { clientInitial } from "@/lib/clients/clientListUi";
 import type { MockClient, MockScheduleItem } from "@/lib/mock/data";
-import {
-  formatScheduleSlotHuman,
-  getPlanSlotsForClientOnDate,
-  type ClientProfileScenario,
-} from "@/lib/mock/clientProfileScenario";
+import { formatScheduleSlotHuman, type ClientProfileScenario } from "@/lib/mock/clientProfileScenario";
 
 export interface ClientProfileHeroAction {
   kind: "link" | "button";

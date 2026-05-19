@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactElement, ReactNode } from "react";
 import type { PlanPriceUi } from "@/lib/billing/planDefinitions";
+import { DecorativeSvg } from "@/components/ui/DecorativeSvg";
 
 const iconSvgCls = "h-[1.35rem] w-[1.35rem] shrink-0 text-current";
 
@@ -15,38 +16,38 @@ function parsePriceDisplay(priceLine: string): { amount: string; period: string 
 
 function CheckIcon(): ReactElement {
   return (
-    <span className="billing-plan-check" aria-hidden>
-      <svg viewBox="0 0 24 24" fill="none">
+    <span className="billing-plan-check" aria-hidden="true">
+      <DecorativeSvg viewBox="0 0 24 24" fill="none">
         <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      </DecorativeSvg>
     </span>
   );
 }
 
 function CtaArrow(): ReactElement {
   return (
-    <svg className="billing-plan-cta-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+    <DecorativeSvg className="billing-plan-cta-arrow" width="18" height="18" viewBox="0 0 24 24" fill="none">
       <path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 export function PlanIconFree(): ReactElement {
   return (
-    <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <DecorativeSvg className={iconSvgCls} viewBox="0 0 24 24" fill="none">
       <path
         d="M12 3.2l2.2 5.5 5.9.5-4.5 3.6 1.5 5.7L12 15.9l-5.1 3.6 1.5-5.7-4.5-3.6 5.9-.5L12 3.2z"
         stroke="currentColor"
         strokeWidth="1.55"
         strokeLinejoin="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 export function PlanIconStart(): ReactElement {
   return (
-    <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <DecorativeSvg className={iconSvgCls} viewBox="0 0 24 24" fill="none">
       <path d="M5 19V12M10 19V9M15 19v-5.5M20 19V6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
       <path
         d="M5.5 10.5L9 13l3.2-3.8 2.8 2.5"
@@ -55,13 +56,13 @@ export function PlanIconStart(): ReactElement {
         strokeLinecap="round"
         strokeLinejoin="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 export function PlanIconPro(): ReactElement {
   return (
-    <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <DecorativeSvg className={iconSvgCls} viewBox="0 0 24 24" fill="none">
       <path
         d="M4 17l1.8-8 4.2 3 4-7 4 7 4.2-3L20 17H4z"
         stroke="currentColor"
@@ -69,13 +70,13 @@ export function PlanIconPro(): ReactElement {
         strokeLinejoin="round"
       />
       <path d="M6 17h12" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 export function PlanIconExpert(): ReactElement {
   return (
-    <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <DecorativeSvg className={iconSvgCls} viewBox="0 0 24 24" fill="none">
       <path
         d="M12 4.2L15.4 12H17l-5 9.8-5-9.8h1.6L12 4.2z"
         stroke="currentColor"
@@ -89,7 +90,7 @@ export function PlanIconExpert(): ReactElement {
         strokeLinecap="round"
       />
       <circle cx="12" cy="10.2" r="1.25" fill="currentColor" opacity="0.45" />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
@@ -98,7 +99,7 @@ export const PlanIconTrial = PlanIconFree;
 
 export function PlanIconStudio(): ReactElement {
   return (
-    <svg className={iconSvgCls} viewBox="0 0 24 24" fill="none" aria-hidden>
+    <DecorativeSvg className={iconSvgCls} viewBox="0 0 24 24" fill="none">
       <path
         d="M4 20V9l8-4 8 4v11M4 20h16M9 20v-5h6v5"
         stroke="currentColor"
@@ -106,7 +107,7 @@ export function PlanIconStudio(): ReactElement {
         strokeLinejoin="round"
       />
       <path d="M9 9h6M9 13h6" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" />
-    </svg>
+    </DecorativeSvg>
   );
 }
 

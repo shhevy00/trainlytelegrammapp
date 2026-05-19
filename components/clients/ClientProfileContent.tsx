@@ -152,7 +152,6 @@ export function ClientProfileContent({ clientId }: ClientProfileContentProps): R
     startHref,
     addPaymentHref,
     quickNoteHref,
-    scheduleHref,
   ]);
 
   const onRepeatPrevious = (): void => {

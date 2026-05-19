@@ -40,9 +40,9 @@ import type { CoachQuickNoteType } from "@/lib/mock/coachLedger";
 import type { CreateWorkoutTemplateInput, UpdateWorkoutTemplateInput } from "@/lib/workout/templates";
 import type { CompleteProfileSetupInput } from "@/lib/mock/lifecycleTypes";
 import type { MockSubscriptionStatus } from "@/lib/mock/lifecycleTypes";
-import { ensureTrainerForTelegramUser } from "@/lib/server/ensureTrainer";
+import { ensureDevTrainerSessionReady } from "@/lib/server/devTrainerSession";
 import { formatPgErrorForUi } from "@/lib/server/pgErrorMessage";
-import { clients, trainerProductAccess, trainers } from "@/db/schema";
+import { clients, trainerProductAccess } from "@/db/schema";
 import type { AppDatabase } from "@/db/client";
 import {
   canOverrideSubscriptionStatusInRuntime,
@@ -61,8 +61,6 @@ import type {
 } from "@/lib/journal/validateJournalUpdate";
 import { validateJournalNoteUpdate, validateJournalWorkoutUpdate } from "@/lib/journal/validateJournalUpdate";
 import type { WorkoutSessionState } from "@/lib/workout/types";
-
-const DEV_TELEGRAM_ID = BigInt("9000000000000");
 
 async function requireTrainerId(): Promise<string> {
   const s = await getTrainerSession();
@@ -294,21 +292,10 @@ export async function enterDevTrainerSessionAction(): Promise<
   }
   try {
     const db = getDb();
-    const { trainerId } = await ensureTrainerForTelegramUser(db, {
-      telegramUserId: DEV_TELEGRAM_ID,
-      displayName: "Dev тренер",
-    });
-    await db
-      .update(trainers)
-      .set({
-        onboardingSeenAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(trainers.id, trainerId));
-    await dbAcceptLegal(db, trainerId);
+    const { trainerId, telegramUserId } = await ensureDevTrainerSessionReady(db);
     const token = await signSessionToken({
       trainerId,
-      telegramUserId: DEV_TELEGRAM_ID.toString(),
+      telegramUserId,
     });
     const jar = await cookies();
     jar.set(sessionCookieName(), token, {

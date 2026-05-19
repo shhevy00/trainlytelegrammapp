@@ -20,22 +20,24 @@ import {
 } from "@/lib/journal/validateJournalUpdate";
 import type { JournalCompletedWorkout, JournalEntry, JournalNoteEntry } from "@/lib/types";
 import {
-  buildWorkoutSessionFromTemplate,
   normalizeTemplateName,
   validateTemplateInput,
   validateUpdateWorkoutTemplateInput,
   type CreateWorkoutTemplateInput,
   type UpdateWorkoutTemplateInput,
-  normalizeWorkoutBootstrap,
   type WorkoutLoggerBootstrap,
   type WorkoutTemplate,
   type WorkoutTemplateExercise,
 } from "@/lib/workout/templates";
+import { createWorkoutBootstrapFromTemplate as resolveBootstrapFromTemplate } from "@/lib/workout/workoutBootstrapFromTemplate";
+import {
+  useWorkoutBootstrapBridge,
+  type OverviewDraftPreview,
+} from "@/lib/workout/useWorkoutBootstrapBridge";
 import {
   INITIAL_SCHEDULE_ITEMS,
   MOCK_TODAY_ISO,
   mockClients,
-  mockTrainer,
   type MockClient,
   type MockScheduleItem,
 } from "@/lib/mock/data";
@@ -71,14 +73,7 @@ export type {
   MockTrainerProfile,
 } from "@/lib/mock/lifecycleTypes";
 
-/** Превью черновика тренировки для Overview (без персистентности между вкладками/перезагрузкой). */
-export interface OverviewDraftPreview {
-  clientId: string;
-  clientName: string;
-  title: string;
-  startedAtMs: number;
-  updatedAtMs: number;
-}
+export type { OverviewDraftPreview } from "@/lib/workout/useWorkoutBootstrapBridge";
 
 function clientHasUpcomingSchedule(
   items: readonly MockScheduleItem[],
@@ -330,27 +325,14 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
   useEffect(() => {
     scheduleItemsRef.current = scheduleItems;
   }, [scheduleItems]);
-  const bootstrapRef = useRef<WorkoutLoggerBootstrap | null>(null);
-  /** Однократный повтор того же bootstrap до конца текущего таска (React Strict Mode: два layout подряд). */
-  const bootstrapReplayUntilMicrotaskRef = useRef<WorkoutLoggerBootstrap | null>(null);
-  const bootstrapReplayClearScheduledRef = useRef(false);
-
-  const scheduleBootstrapReplayClear = useCallback((): void => {
-    if (bootstrapReplayClearScheduledRef.current) return;
-    bootstrapReplayClearScheduledRef.current = true;
-    queueMicrotask(() => {
-      bootstrapReplayClearScheduledRef.current = false;
-      bootstrapReplayUntilMicrotaskRef.current = null;
-    });
-  }, []);
-
-  const clearBootstrapReplay = useCallback((): void => {
-    bootstrapReplayUntilMicrotaskRef.current = null;
-    bootstrapReplayClearScheduledRef.current = false;
-  }, []);
-  /** Stage 7: черновик из логгера только в памяти вкладки; без БД и sessionStorage. */
-  const overviewDraftBootstrapRef = useRef<WorkoutLoggerBootstrap | null>(null);
-  const [overviewDraftPreview, setOverviewDraftPreview] = useState<OverviewDraftPreview | null>(null);
+  const {
+    overviewDraftPreview,
+    consumeWorkoutBootstrap,
+    queueWorkoutBootstrap,
+    syncOverviewWorkoutDraft,
+    clearOverviewWorkoutDraft,
+    consumeOverviewDraftBootstrap,
+  } = useWorkoutBootstrapBridge();
   const [workoutTemplates, setWorkoutTemplates] = useState<WorkoutTemplate[]>(() =>
     buildSeedWorkoutTemplates(),
   );
@@ -876,56 +858,6 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
     [workoutTemplates],
   );
 
-  const syncOverviewWorkoutDraft = useCallback((bootstrap: WorkoutLoggerBootstrap | null): void => {
-    overviewDraftBootstrapRef.current = bootstrap ? normalizeWorkoutBootstrap(bootstrap) : null;
-    if (!bootstrap) {
-      setOverviewDraftPreview((prev) => (prev == null ? prev : null));
-      return;
-    }
-    const nextPreview = {
-      clientId: bootstrap.session.clientId,
-      clientName: bootstrap.session.clientName,
-      title: bootstrap.session.title,
-      startedAtMs: bootstrap.session.startedAtMs,
-      updatedAtMs: Date.now(),
-    };
-    setOverviewDraftPreview((prev) => {
-      if (
-        prev != null &&
-        prev.clientId === nextPreview.clientId &&
-        prev.clientName === nextPreview.clientName &&
-        prev.title === nextPreview.title &&
-        prev.startedAtMs === nextPreview.startedAtMs
-      ) {
-        return prev;
-      }
-      return nextPreview;
-    });
-  }, []);
-
-  const clearOverviewWorkoutDraft = useCallback((): void => {
-    overviewDraftBootstrapRef.current = null;
-    setOverviewDraftPreview(null);
-  }, []);
-
-  const consumeOverviewDraftBootstrap = useCallback((): boolean => {
-    const b = overviewDraftBootstrapRef.current;
-    if (!b) return false;
-    overviewDraftBootstrapRef.current = null;
-    setOverviewDraftPreview(null);
-    clearBootstrapReplay();
-    bootstrapRef.current = normalizeWorkoutBootstrap(b);
-    return true;
-  }, [clearBootstrapReplay]);
-
-  const queueWorkoutBootstrap = useCallback(
-    (bootstrap: WorkoutLoggerBootstrap): void => {
-      clearBootstrapReplay();
-      bootstrapRef.current = normalizeWorkoutBootstrap(bootstrap);
-    },
-    [clearBootstrapReplay],
-  );
-
   const createWorkoutBootstrapFromTemplate = useCallback(
     (params: {
       clientId: string;
@@ -934,29 +866,13 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       titleOverride?: string;
       debtAcknowledged?: boolean;
     }): { ok: true } | { ok: false; error: string } => {
-      const client = resolveClient(params.clientId);
-      if (!client) return { ok: false, error: "Клиент не найден." };
-      const template = workoutTemplates.find((t) => t.id === params.templateId);
-      if (!template) return { ok: false, error: "Шаблон тренировки не найден." };
-      if (template.clientId !== params.clientId) {
-        return { ok: false, error: "Шаблон не принадлежит выбранному клиенту." };
-      }
-      if (template.archivedAtIso) return { ok: false, error: "Шаблон в архиве." };
-      const session = buildWorkoutSessionFromTemplate({
-        template,
-        clientId: client.id,
-        clientName: client.name,
-        titleOverride: params.titleOverride,
-        scheduleItemId: params.scheduleItemId,
-        ...(params.debtAcknowledged ? { debtAcknowledged: true } : {}),
+      const result = resolveBootstrapFromTemplate({
+        ...params,
+        client: resolveClient(params.clientId),
+        template: workoutTemplates.find((t) => t.id === params.templateId),
       });
-      queueWorkoutBootstrap({
-        session,
-        referenceHintsByExerciseName: {},
-        rememberBlock: "",
-        startSource: "template",
-        templateId: template.id,
-      });
+      if (!result.ok) return result;
+      queueWorkoutBootstrap(result.bootstrap);
       return { ok: true };
     },
     [resolveClient, workoutTemplates, queueWorkoutBootstrap],
@@ -1015,16 +931,15 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
       if (!entry || entry.kind !== "workout") return false;
       if (entry.exercises.length === 0) return false;
       const session = buildRepeatSessionFromSavedWorkout(entry);
-      clearBootstrapReplay();
-      bootstrapRef.current = {
+      queueWorkoutBootstrap({
         session,
         referenceHintsByExerciseName: {},
         rememberBlock: "",
         startSource: "repeat",
-      };
+      });
       return true;
     },
-    [journalEntries, clearBootstrapReplay],
+    [journalEntries, queueWorkoutBootstrap],
   );
 
   const saveWorkoutDraft = useCallback(
@@ -1063,21 +978,6 @@ export function MockAppProvider({ children }: { children: ReactNode }): ReactEle
     const { deleteMockWorkoutDraft } = await import("@/lib/mock/mockWorkoutDraftStore");
     deleteMockWorkoutDraft(workoutId);
   }, []);
-
-  const consumeWorkoutBootstrap = useCallback((): WorkoutLoggerBootstrap | null => {
-    if (bootstrapRef.current != null) {
-      const b = normalizeWorkoutBootstrap(bootstrapRef.current);
-      bootstrapRef.current = null;
-      bootstrapReplayUntilMicrotaskRef.current = b;
-      scheduleBootstrapReplayClear();
-      return b;
-    }
-    const replay = bootstrapReplayUntilMicrotaskRef.current;
-    if (replay != null) {
-      return normalizeWorkoutBootstrap(replay);
-    }
-    return null;
-  }, [scheduleBootstrapReplayClear]);
 
   const value = useMemo<MockAppContextValue>(
     () => ({

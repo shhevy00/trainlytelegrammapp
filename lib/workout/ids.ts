@@ -13,9 +13,17 @@ export function workoutExerciseIdForPostgres(id: string): string {
   return id;
 }
 
+function randomBase36Suffix(byteCount: number): string {
+  const bytes = new Uint8Array(byteCount);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(36).padStart(2, "0"))
+    .join("")
+    .slice(0, 12);
+}
+
 export function newWorkoutId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
-  return `w_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `w_${Date.now().toString(36)}_${randomBase36Suffix(8)}`;
 }

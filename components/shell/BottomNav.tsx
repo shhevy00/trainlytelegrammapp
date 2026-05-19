@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import type { ReactElement } from "react";
 import { TrainlyNavAnchor } from "@/components/navigation/TrainlyNavAnchor";
+import { DecorativeSvg } from "@/components/ui/DecorativeSvg";
 
 
 const navItem =
@@ -14,63 +15,63 @@ const navActive =
 function IconHome({ active }: { active: boolean }): ReactElement {
   const stroke = active ? "var(--brand-solid)" : "var(--text-muted)";
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <DecorativeSvg width="22" height="22" viewBox="0 0 24 24" fill="none" className="shrink-0">
       <path
         d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z"
         stroke={stroke}
         strokeWidth="1.6"
         strokeLinejoin="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 function IconUsers({ active }: { active: boolean }): ReactElement {
   const stroke = active ? "var(--brand-solid)" : "var(--text-muted)";
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <DecorativeSvg width="22" height="22" viewBox="0 0 24 24" fill="none" className="shrink-0">
       <path
         d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm8 10v-2a4 4 0 0 0-3-3.87m-4-12.13a4 4 0 0 1 0 7.75"
         stroke={stroke}
         strokeWidth="1.6"
         strokeLinecap="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 function IconJournal({ active }: { active: boolean }): ReactElement {
   const stroke = active ? "var(--brand-solid)" : "var(--text-muted)";
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <DecorativeSvg width="22" height="22" viewBox="0 0 24 24" fill="none" className="shrink-0">
       <path
         d="M8 6h10M8 12h10M8 18h6M4 6h.01M4 12h.01M4 18h.01"
         stroke={stroke}
         strokeWidth="1.6"
         strokeLinecap="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 function IconCalendar({ active }: { active: boolean }): ReactElement {
   const stroke = active ? "var(--brand-solid)" : "var(--text-muted)";
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <DecorativeSvg width="22" height="22" viewBox="0 0 24 24" fill="none" className="shrink-0">
       <path
         d="M16 2v4M8 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"
         stroke={stroke}
         strokeWidth="1.6"
         strokeLinecap="round"
       />
-    </svg>
+    </DecorativeSvg>
   );
 }
 
 function IconSubscription({ active }: { active: boolean }): ReactElement {
   const stroke = active ? "var(--brand-solid)" : "var(--text-muted)";
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden className="shrink-0">
+    <DecorativeSvg width="22" height="22" viewBox="0 0 24 24" fill="none" className="shrink-0">
       <path
         d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v8ZM4 8v8a2 2 0 0 0 2 2h12v-8H4Z"
         stroke={stroke}
@@ -79,7 +80,7 @@ function IconSubscription({ active }: { active: boolean }): ReactElement {
         strokeLinejoin="round"
       />
       <path d="M12 15h.01" stroke={stroke} strokeWidth="2.5" strokeLinecap="round" />
-    </svg>
+    </DecorativeSvg>
   );
 }
 

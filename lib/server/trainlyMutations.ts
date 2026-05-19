@@ -21,6 +21,11 @@ import type {
   JournalWorkoutUpdateInput,
 } from "@/lib/journal/validateJournalUpdate";
 import type { JournalCompletedWorkout, JournalNoteEntry } from "@/lib/types";
+import {
+  deleteClientActiveWorkoutDrafts,
+  markScheduleItemCompleted,
+  resolveLinkedScheduleItemId,
+} from "@/lib/server/journalEntryTxPrep";
 import { dbReplaceWorkoutStructure } from "@/lib/server/workoutDrafts";
 import type { CoachQuickNoteType } from "@/lib/mock/coachLedger";
 import { spendOneClientSessionBalance } from "@/lib/coach/paidSessions";
@@ -111,34 +116,13 @@ export async function dbAddCompletedWorkout(
 ): Promise<void> {
   await assertClientOwned(db, trainerId, entry.clientId);
   await db.transaction(async (tx) => {
-    await tx
-      .delete(workouts)
-      .where(
-        and(
-          eq(workouts.trainerId, trainerId),
-          eq(workouts.clientId, entry.clientId),
-          inArray(workouts.status, ["draft", "in_progress"]),
-        ),
-      );
-
-    let linkedScheduleId: string | null = entry.scheduleItemId ?? null;
-    if (linkedScheduleId != null) {
-      const slotRows = await tx
-        .select({ id: scheduleItems.id })
-        .from(scheduleItems)
-        .where(
-          and(
-            eq(scheduleItems.id, linkedScheduleId),
-            eq(scheduleItems.trainerId, trainerId),
-            eq(scheduleItems.clientId, entry.clientId),
-            inArray(scheduleItems.status, ["planned", "upcoming"]),
-          ),
-        )
-        .limit(1);
-      if (slotRows.length === 0) {
-        linkedScheduleId = null;
-      }
-    }
+    await deleteClientActiveWorkoutDrafts(tx, trainerId, entry.clientId);
+    const linkedScheduleId = await resolveLinkedScheduleItemId(
+      tx,
+      trainerId,
+      entry.clientId,
+      entry.scheduleItemId,
+    );
 
     await tx.insert(workouts).values({
       id: entry.id,
@@ -200,16 +184,7 @@ export async function dbAddCompletedWorkout(
       .where(and(eq(clients.id, entry.clientId), eq(clients.trainerId, trainerId)));
 
     if (linkedScheduleId != null) {
-      await tx
-        .update(scheduleItems)
-        .set({ status: "completed", updatedAt: new Date() })
-        .where(
-          and(
-            eq(scheduleItems.id, linkedScheduleId),
-            eq(scheduleItems.trainerId, trainerId),
-            inArray(scheduleItems.status, ["planned", "upcoming"]),
-          ),
-        );
+      await markScheduleItemCompleted(tx, trainerId, linkedScheduleId);
     }
   });
 }
@@ -217,34 +192,13 @@ export async function dbAddCompletedWorkout(
 export async function dbAddNoteEntry(db: AppDatabase, trainerId: string, entry: JournalNoteEntry): Promise<void> {
   await assertClientOwned(db, trainerId, entry.clientId);
   await db.transaction(async (tx) => {
-    await tx
-      .delete(workouts)
-      .where(
-        and(
-          eq(workouts.trainerId, trainerId),
-          eq(workouts.clientId, entry.clientId),
-          inArray(workouts.status, ["draft", "in_progress"]),
-        ),
-      );
-
-    let linkedScheduleId: string | null = entry.scheduleItemId ?? null;
-    if (linkedScheduleId != null) {
-      const slotRows = await tx
-        .select({ id: scheduleItems.id })
-        .from(scheduleItems)
-        .where(
-          and(
-            eq(scheduleItems.id, linkedScheduleId),
-            eq(scheduleItems.trainerId, trainerId),
-            eq(scheduleItems.clientId, entry.clientId),
-            inArray(scheduleItems.status, ["planned", "upcoming"]),
-          ),
-        )
-        .limit(1);
-      if (slotRows.length === 0) {
-        linkedScheduleId = null;
-      }
-    }
+    await deleteClientActiveWorkoutDrafts(tx, trainerId, entry.clientId);
+    const linkedScheduleId = await resolveLinkedScheduleItemId(
+      tx,
+      trainerId,
+      entry.clientId,
+      entry.scheduleItemId,
+    );
 
     await tx.insert(workouts).values({
       id: entry.id,
@@ -265,16 +219,7 @@ export async function dbAddNoteEntry(db: AppDatabase, trainerId: string, entry: 
     });
 
     if (linkedScheduleId != null) {
-      await tx
-        .update(scheduleItems)
-        .set({ status: "completed", updatedAt: new Date() })
-        .where(
-          and(
-            eq(scheduleItems.id, linkedScheduleId),
-            eq(scheduleItems.trainerId, trainerId),
-            inArray(scheduleItems.status, ["planned", "upcoming"]),
-          ),
-        );
+      await markScheduleItemCompleted(tx, trainerId, linkedScheduleId);
     }
   });
 }

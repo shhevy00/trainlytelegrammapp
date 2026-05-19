@@ -12,11 +12,12 @@ import { getRepoRoot, loadRepoEnvFiles } from "./loadRepoEnv";
 
 loadRepoEnvFiles();
 const repoRoot = getRepoRoot();
+const ENV_FILE_HINTS = [".env", ".env.local"] as const;
 
 async function main(): Promise<void> {
   const url = process.env.DATABASE_URL;
   if (url == null || url.length === 0) {
-    const tried = [path.join(repoRoot, ".env"), path.join(repoRoot, ".env.local")]
+    const tried = ENV_FILE_HINTS.map((name) => path.join(repoRoot, name))
       .filter((p) => fs.existsSync(p))
       .join(", ");
     throw new Error(

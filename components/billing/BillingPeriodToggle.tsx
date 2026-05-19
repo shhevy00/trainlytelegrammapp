@@ -15,7 +15,8 @@ export function BillingPeriodToggle({ value, onChange }: BillingPeriodToggleProp
   return (
     <div className="billing-period-bar">
       <p className="billing-period-bar__label">Период оплаты</p>
-      <div className="billing-period-toggle" role="group" aria-label="Период оплаты">
+      <fieldset className="billing-period-toggle border-0 p-0 m-0 min-w-0">
+        <legend className="sr-only">Период оплаты</legend>
         <button
           type="button"
           className={`billing-period-toggle__btn ${value === "month" ? "billing-period-toggle__btn--active" : ""}`}
@@ -33,7 +34,7 @@ export function BillingPeriodToggle({ value, onChange }: BillingPeriodToggleProp
           <span>За год</span>
           {savings > 0 ? <span className="billing-period-toggle__save">−{savings}%</span> : null}
         </button>
-      </div>
+      </fieldset>
       <p className="billing-period-bar__hint">
         {value === "year" ? "Одним платежом на 12 месяцев" : "Списание каждый месяц"}
       </p>

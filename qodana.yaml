@@ -1,0 +1,57 @@
+# Qodana для Trainly (Next.js / TypeScript).
+# @see https://www.jetbrains.com/help/qodana/qodana-yaml.html
+version: "1.0"
+
+profile:
+  name: qodana.recommended
+
+exclude:
+  # Сборка и зависимости
+  - name: All
+    paths:
+      - node_modules/**
+      - .next/**
+      - "**/*.min.js"
+
+  # localStorage keys, не пароли
+  - name: HardcodedPasswords
+    paths:
+      - lib/mock/lifecycleTypes.ts
+      - lib/workout/restTimerPreference.ts
+      - lib/mock/mockWorkoutDraftStore.ts
+      - components/overview/OverviewPageContent.tsx
+      - scripts/integration/yookassa-webhook-fixture.test.ts
+
+  # PostgreSQL: правила MSSQL (SET QUOTED_IDENTIFIER) не применимы
+  - name: SqlAddNotNullColumnMigration
+    paths:
+      - drizzle/**
+      - db/**
+      - scripts/explain-hot.sql
+  - name: SqlRedundantCodeBlock
+    paths:
+      - drizzle/**
+      - db/**
+      - scripts/explain-hot.sql
+  - name: SqlNoDataSourceInspection
+    paths:
+      - drizzle/**
+      - db/**
+      - scripts/explain-hot.sql
+
+  # React Compiler не включён в next.config; client handlers — ложные срабатывания
+  - name: JSNonSerializableExpression
+    paths:
+      - components/**
+      - lib/mock/MockAppProvider.tsx
+      - lib/live/LiveTrainlyProvider.tsx
+      - lib/server/yookassaWebhook.ts
+      - lib/overview/dailyOperations.ts
+      - lib/clients/clientProfileHero.ts
+      - scripts/unit-tests.ts
+
+  # Dev-скрипты: чтение только allowlist .env из loadRepoEnv
+  - name: PathTraversal
+    paths:
+      - scripts/loadRepoEnv.ts
+      - scripts/db-migrate.ts

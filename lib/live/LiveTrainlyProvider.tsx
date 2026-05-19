@@ -1,14 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { createWorkoutBootstrapFromTemplate as resolveBootstrapFromTemplate } from "@/lib/workout/workoutBootstrapFromTemplate";
+import { useWorkoutBootstrapBridge } from "@/lib/workout/useWorkoutBootstrapBridge";
 import type { JournalCompletedWorkout, JournalEntry, JournalNoteEntry } from "@/lib/types";
 import {
-  buildWorkoutSessionFromTemplate,
   validateTemplateInput,
   type CreateWorkoutTemplateInput,
   type UpdateWorkoutTemplateInput,
-  normalizeWorkoutBootstrap,
-  type WorkoutLoggerBootstrap,
   type WorkoutTemplate,
 } from "@/lib/workout/templates";
 import type { ExerciseHistoryDemo } from "@/lib/mock/workoutDemo";
@@ -47,7 +46,7 @@ import {
 import { TrainlyProductAccessDeniedError } from "@/lib/billing/accessGate";
 import type { WorkoutSessionState } from "@/lib/workout/types";
 import { LegalConsentRedirect } from "@/components/shell/LegalConsentRedirect";
-import { MockAppContext, type MockAppContextValue, type OverviewDraftPreview } from "@/lib/mock/MockAppProvider";
+import { MockAppContext, type MockAppContextValue } from "@/lib/mock/MockAppProvider";
 
 async function refresh(): Promise<TrainlySnapshot> {
   return refreshTrainlySnapshotAction();
@@ -67,26 +66,14 @@ export function LiveTrainlyProvider({
     scheduleItemsRef.current = snap.scheduleItems;
   }, [snap.scheduleItems]);
 
-  const bootstrapRef = useRef<WorkoutLoggerBootstrap | null>(null);
-  const bootstrapReplayUntilMicrotaskRef = useRef<WorkoutLoggerBootstrap | null>(null);
-  const bootstrapReplayClearScheduledRef = useRef(false);
-
-  const scheduleBootstrapReplayClear = useCallback((): void => {
-    if (bootstrapReplayClearScheduledRef.current) return;
-    bootstrapReplayClearScheduledRef.current = true;
-    queueMicrotask(() => {
-      bootstrapReplayClearScheduledRef.current = false;
-      bootstrapReplayUntilMicrotaskRef.current = null;
-    });
-  }, []);
-
-  const clearBootstrapReplay = useCallback((): void => {
-    bootstrapReplayUntilMicrotaskRef.current = null;
-    bootstrapReplayClearScheduledRef.current = false;
-  }, []);
-
-  const overviewDraftBootstrapRef = useRef<WorkoutLoggerBootstrap | null>(null);
-  const [overviewDraftPreview, setOverviewDraftPreview] = useState<OverviewDraftPreview | null>(null);
+  const {
+    overviewDraftPreview,
+    consumeWorkoutBootstrap,
+    queueWorkoutBootstrap,
+    syncOverviewWorkoutDraft,
+    clearOverviewWorkoutDraft,
+    consumeOverviewDraftBootstrap,
+  } = useWorkoutBootstrapBridge();
 
   const resolveClient = useCallback(
     (clientId: string): MockClient | undefined => snap.clients.find((c) => c.id === clientId),
@@ -390,87 +377,21 @@ export function LiveTrainlyProvider({
     [snap.journalEntries],
   );
 
-  const consumeWorkoutBootstrap = useCallback((): WorkoutLoggerBootstrap | null => {
-    if (bootstrapRef.current != null) {
-      const b = normalizeWorkoutBootstrap(bootstrapRef.current);
-      bootstrapRef.current = null;
-      bootstrapReplayUntilMicrotaskRef.current = b;
-      scheduleBootstrapReplayClear();
-      return b;
-    }
-    const replay = bootstrapReplayUntilMicrotaskRef.current;
-    if (replay != null) {
-      return normalizeWorkoutBootstrap(replay);
-    }
-    return null;
-  }, [scheduleBootstrapReplayClear]);
-
-  const queueWorkoutBootstrap = useCallback(
-    (bootstrap: WorkoutLoggerBootstrap): void => {
-      clearBootstrapReplay();
-      bootstrapRef.current = normalizeWorkoutBootstrap(bootstrap);
-    },
-    [clearBootstrapReplay],
-  );
-
-  const syncOverviewWorkoutDraft = useCallback((bootstrap: WorkoutLoggerBootstrap | null): void => {
-    overviewDraftBootstrapRef.current = bootstrap ? normalizeWorkoutBootstrap(bootstrap) : null;
-    if (!bootstrap) {
-      setOverviewDraftPreview((prev) => (prev == null ? prev : null));
-      return;
-    }
-    const nextPreview = {
-      clientId: bootstrap.session.clientId,
-      clientName: bootstrap.session.clientName,
-      title: bootstrap.session.title,
-      startedAtMs: bootstrap.session.startedAtMs,
-      updatedAtMs: Date.now(),
-    };
-    setOverviewDraftPreview((prev) => {
-      if (
-        prev != null &&
-        prev.clientId === nextPreview.clientId &&
-        prev.clientName === nextPreview.clientName &&
-        prev.title === nextPreview.title &&
-        prev.startedAtMs === nextPreview.startedAtMs
-      ) {
-        return prev;
-      }
-      return nextPreview;
-    });
-  }, []);
-
-  const clearOverviewWorkoutDraft = useCallback((): void => {
-    overviewDraftBootstrapRef.current = null;
-    setOverviewDraftPreview(null);
-  }, []);
-
-  const consumeOverviewDraftBootstrap = useCallback((): boolean => {
-    const b = overviewDraftBootstrapRef.current;
-    if (!b) return false;
-    overviewDraftBootstrapRef.current = null;
-    setOverviewDraftPreview(null);
-    clearBootstrapReplay();
-    bootstrapRef.current = normalizeWorkoutBootstrap(b);
-    return true;
-  }, [clearBootstrapReplay]);
-
   const prepareRepeatFromWorkout = useCallback(
     (workoutId: string): boolean => {
       const entry = snap.journalEntries.find((e) => e.id === workoutId);
       if (!entry || entry.kind !== "workout") return false;
       if (entry.exercises.length === 0) return false;
       const session = buildRepeatSessionFromSavedWorkout(entry);
-      clearBootstrapReplay();
-      bootstrapRef.current = {
+      queueWorkoutBootstrap({
         session,
         referenceHintsByExerciseName: {},
         rememberBlock: "",
         startSource: "repeat",
-      };
+      });
       return true;
     },
-    [snap.journalEntries, clearBootstrapReplay],
+    [snap.journalEntries, queueWorkoutBootstrap],
   );
 
   const createWorkoutBootstrapFromTemplate = useCallback(
@@ -481,29 +402,13 @@ export function LiveTrainlyProvider({
       titleOverride?: string;
       debtAcknowledged?: boolean;
     }): { ok: true } | { ok: false; error: string } => {
-      const client = resolveClient(params.clientId);
-      if (!client) return { ok: false, error: "Клиент не найден." };
-      const template = snap.workoutTemplates.find((t) => t.id === params.templateId);
-      if (!template) return { ok: false, error: "Шаблон тренировки не найден." };
-      if (template.clientId !== params.clientId) {
-        return { ok: false, error: "Шаблон не принадлежит выбранному клиенту." };
-      }
-      if (template.archivedAtIso) return { ok: false, error: "Шаблон в архиве." };
-      const session = buildWorkoutSessionFromTemplate({
-        template,
-        clientId: client.id,
-        clientName: client.name,
-        titleOverride: params.titleOverride,
-        scheduleItemId: params.scheduleItemId,
-        ...(params.debtAcknowledged ? { debtAcknowledged: true } : {}),
+      const result = resolveBootstrapFromTemplate({
+        ...params,
+        client: resolveClient(params.clientId),
+        template: snap.workoutTemplates.find((t) => t.id === params.templateId),
       });
-      queueWorkoutBootstrap({
-        session,
-        referenceHintsByExerciseName: {},
-        rememberBlock: "",
-        startSource: "template",
-        templateId: template.id,
-      });
+      if (!result.ok) return result;
+      queueWorkoutBootstrap(result.bootstrap);
       return { ok: true };
     },
     [resolveClient, snap.workoutTemplates, queueWorkoutBootstrap],

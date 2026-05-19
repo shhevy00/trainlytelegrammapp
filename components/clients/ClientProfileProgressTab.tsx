@@ -47,7 +47,8 @@ export function ClientProfileProgressTab({
     period === "7" ? "7 дней" : period === "30" ? "30 дней" : period === "90" ? "90 дней" : "всё время";
 
   const periodPicker = (
-    <div className="client-profile-periods" role="group" aria-label="Период">
+    <fieldset className="client-profile-periods border-0 p-0 m-0 min-w-0">
+      <legend className="sr-only">Период</legend>
       {PERIOD_OPTIONS.map((p) => (
         <button
           key={p.id}
@@ -60,7 +61,7 @@ export function ClientProfileProgressTab({
           {p.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 
   if (journalWorkoutCount === 0) {
@@ -109,6 +110,8 @@ export function ClientProfileProgressTab({
     return "тренировок";
   };
 
+  const exerciseTrend = dashboard.exerciseTrend;
+
   return (
     <div className="client-profile-panel">
       {periodPicker}
@@ -155,14 +158,14 @@ export function ClientProfileProgressTab({
 
           <div className="client-profile-chart">
             <p className="client-profile-chart__title">Упражнение</p>
-            {dashboard.exerciseTrend ? (
+            {exerciseTrend ? (
               <>
-                <p className="client-profile-chart__ex-name">{dashboard.exerciseTrend.name}</p>
-                <p className="client-profile-chart__ex-meta">{dashboard.exerciseTrend.lastLabel}</p>
+                <p className="client-profile-chart__ex-name">{exerciseTrend.name}</p>
+                <p className="client-profile-chart__ex-meta">{exerciseTrend.lastLabel}</p>
                 <div className="client-profile-chart__mini">
-                  {dashboard.exerciseTrend.normalizedSeries.map((h, i) => (
+                  {exerciseTrend.normalizedSeries.map((h, i) => (
                     <div
-                      key={`ex-${i}`}
+                      key={`${exerciseTrend.name}-pt-${i}`}
                       className="client-profile-chart__mini-bar"
                       style={{ height: `${4 + h * 44}px`, opacity: 0.35 + h * 0.65 }}
                     />

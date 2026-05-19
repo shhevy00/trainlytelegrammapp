@@ -7,10 +7,21 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.join(__dirname, "..");
+const repoRoot = path.resolve(path.join(__dirname, ".."));
+
+const ALLOWED_ENV_FILES = [".env", ".env.local"] as const;
 
 export function getRepoRoot(): string {
   return repoRoot;
+}
+
+function resolveAllowedEnvPath(filename: (typeof ALLOWED_ENV_FILES)[number]): string {
+  const resolved = path.resolve(repoRoot, filename);
+  const rootWithSep = repoRoot.endsWith(path.sep) ? repoRoot : `${repoRoot}${path.sep}`;
+  if (!resolved.startsWith(rootWithSep) && resolved !== repoRoot) {
+    throw new Error("env_path_outside_repo");
+  }
+  return resolved;
 }
 
 export function parseDotEnv(content: string): Record<string, string> {
@@ -35,9 +46,9 @@ export function parseDotEnv(content: string): Record<string, string> {
 }
 
 export function loadRepoEnvFiles(): void {
-  const paths = [path.join(repoRoot, ".env"), path.join(repoRoot, ".env.local")];
   const merged: Record<string, string> = {};
-  for (const p of paths) {
+  for (const filename of ALLOWED_ENV_FILES) {
+    const p = resolveAllowedEnvPath(filename);
     if (!fs.existsSync(p)) continue;
     Object.assign(merged, parseDotEnv(fs.readFileSync(p, "utf8")));
   }

@@ -40,13 +40,13 @@ export function ClientsPageContent({ initialFilter = "all" }: ClientsPageContent
     router.replace(q == null ? "/clients" : `/clients?filter=${encodeURIComponent(q)}`, { scroll: false });
   };
 
-  const filterCounts = useMemo(() => {
-    const ctx = { todayIso, scheduleItems, quickNotes: coachQuickNotes };
-    return {
+  const filterCounts = useMemo(
+    () => ({
       all: clients.length,
       today: clients.filter((c) => clientMatchesTodayFilter(c, scheduleItems, todayIso)).length,
-    };
-  }, [clients, scheduleItems, todayIso]);
+    }),
+    [clients, scheduleItems, todayIso],
+  );
 
   const filtered = useMemo(
     () =>
